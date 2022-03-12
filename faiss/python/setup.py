@@ -11,7 +11,9 @@ import platform
 
 # make the faiss python package dir
 shutil.rmtree("faiss", ignore_errors=True)
+shutil.rmtree("contrib", ignore_errors=True)
 os.mkdir("faiss")
+shutil.copytree("../../../contrib", "contrib")
 shutil.copytree("contrib", "faiss/contrib")
 shutil.copyfile("__init__.py", "faiss/__init__.py")
 shutil.copyfile("loader.py", "faiss/loader.py")
@@ -59,7 +61,7 @@ setup(
     keywords='search nearest neighbors',
 
     install_requires=['numpy'],
-    packages=['faiss', 'faiss.contrib'],
+    packages=['faiss', 'faiss.contrib','faiss.contrib.kn3'],
     package_data={
         'faiss': ['*.so', '*.pyd'],
     },
