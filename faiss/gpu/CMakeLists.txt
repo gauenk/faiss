@@ -9,6 +9,7 @@ set(FAISS_GPU_SRC
   GpuCloner.cpp
   GpuClonerOptions.cpp
   GpuDistance.cu
+  GpuKn3Distance.cu
   GpuIcmEncoder.cu
   GpuIndex.cu
   GpuIndexBinaryFlat.cu
@@ -23,6 +24,7 @@ set(FAISS_GPU_SRC
   impl/BinaryFlatIndex.cu
   impl/BroadcastSum.cu
   impl/Distance.cu
+  impl/Kn3Distance.cu
   impl/FlatIndex.cu
   impl/IVFAppend.cu
   impl/IVFBase.cu
@@ -82,6 +84,7 @@ set(FAISS_GPU_HEADERS
   GpuCloner.h
   GpuClonerOptions.h
   GpuDistance.h
+  GpuKn3Distance.h
   GpuIcmEncoder.h
   GpuFaissAssert.h
   GpuIndex.h
@@ -98,6 +101,7 @@ set(FAISS_GPU_HEADERS
   impl/BinaryFlatIndex.cuh
   impl/BroadcastSum.cuh
   impl/Distance.cuh
+  impl/Kn3Distance.cuh
   impl/DistanceUtils.cuh
   impl/FlatIndex.cuh
   impl/GeneralDistance.cuh

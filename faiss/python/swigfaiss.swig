@@ -293,6 +293,7 @@ void gpu_sync_all_devices();
 #include <faiss/gpu/GpuAutoTune.h>
 #include <faiss/gpu/GpuCloner.h>
 #include <faiss/gpu/GpuDistance.h>
+#include <faiss/gpu/GpuKn3Distance.h>
 #include <faiss/gpu/GpuIcmEncoder.h>
 
 int get_num_gpus()
@@ -502,6 +503,7 @@ void gpu_sync_all_devices()
 %include  <faiss/gpu/GpuIndexIVFScalarQuantizer.h>
 %include  <faiss/gpu/GpuIndexBinaryFlat.h>
 %include  <faiss/gpu/GpuDistance.h>
+%include  <faiss/gpu/GpuKn3Distance.h>
 %include  <faiss/gpu/GpuIcmEncoder.h>
 
 
