@@ -85,15 +85,13 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
     // Since we've guaranteed that all arguments are
     // on device, call the implementation
 
-    if (args.fxn_name == Kn3FxnName::KDISTS){
+    if (args.fxn_name == Kn3FxnName::KDIST){
 
       // Only _Compute_ the Nearest Neighbors (no fill)
       bfKn3OnDevice<T>(res,device,stream,
                        srch_burst,tQueries,
-                       args.queriesRowMajor,
-                       args.k,args.metric,
-                       args.metricArg,tOutDistances,
-                       tOutIntIndices,args.ignoreOutDistances);
+                       tOutDistances,
+                       tOutIntIndices);
 
     }else if (args.fxn_name == Kn3FxnName::KFILL){
 
@@ -108,13 +106,8 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
                            stream,
                            srch_burst,
                            tQueries,
-                           args.queriesRowMajor,
-                           args.k,
-                           args.metric,
-                           args.metricArg,
                            tOutDistances,
-                           tOutIntIndices,
-                           args.ignoreOutDistances);
+                           tOutIntIndices);
 
     }else if (args.fxn_name == Kn3FxnName::PFILLTEST){
 
@@ -144,13 +137,8 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
                         stream,
                         srch_burst,
                         tQueries,
-                        args.queriesRowMajor,
-                        args.k,
-                        args.metric,
-                        args.metricArg,
                         tOutDistances,
                         tOutIntIndices,
-                        args.ignoreOutDistances,
                         args.fill_a,
                         args.fill_b);
 
@@ -167,11 +155,6 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
                        stream,
                        srch_burst,
                        tQueries,
-                       args.queriesRowMajor,
-                       args.k,
-                       args.metric,
-                       args.metricArg,
-                       args.ignoreOutDistances,
                        args.fill_a,
                        args.fill_b);
     }else{

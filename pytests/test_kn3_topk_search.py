@@ -68,12 +68,14 @@ class TestTopKSearch(unittest.TestCase):
         start = index * bsize
         stop = ( index + 1 ) * bsize
         srch_inds = th.arange(start,stop,device=device)[:,None]
-        return kn3.get_3d_inds(srch_inds,c,h,w)
+        srch_inds = kn3.get_3d_inds(srch_inds,c,h,w)
+        srch_inds = srch_inds.contiguous()
+        return srch_inds
 
     def init_topk_shells(self,bsize,k,device):
-        tf32,tfl = th.float32,th.long
+        tf32,ti32 = th.float32,th.int32
         vals = th.zeros((bsize,k),dtype=tf32,device=device)
-        inds = -th.ones((bsize,k),dtype=tfl,device=device)
+        inds = -th.ones((bsize,k),dtype=ti32,device=device)
         return vals,inds
 
     #
@@ -83,11 +85,17 @@ class TestTopKSearch(unittest.TestCase):
     def run_comparison(self,noisy,clean,sigma,flows,args):
 
         # -- fixed testing params --
-        K = 50
+        K = 20
         BSIZE = 50
         NBATCHES = 2
         shape = noisy.shape
         device = noisy.device
+
+        # -- create empty bufs --
+        bufs = edict()
+        bufs.patches = None
+        bufs.dists = None
+        bufs.inds = None
 
         # -- exec over batches --
         for index in range(NBATCHES):
@@ -104,10 +112,14 @@ class TestTopKSearch(unittest.TestCase):
                                        vpss_inds,flows,sigma,args)
 
             # -- search using faiss code --
-            vpss.exec_sim_search_burst(clean,srch_inds,kn3_vals,
-                                       kn3_inds,flows,sigma,args)
-            # faiss.kn3.exec_sim_search_burst(clean,srch_inds,kn3_vals,
-            #                                 kn3_vals,flows,sigma,args)
+            # vpss.exec_sim_search_burst(clean,srch_inds,kn3_vals,
+            #                            kn3_inds,flows,sigma,args)
+            print(srch_inds.shape,kn3_vals.shape,kn3_inds.shape)
+            bufs.dists = kn3_vals
+            bufs.inds = kn3_inds
+            kn3.run_search(clean,srch_inds,flows,sigma,args,bufs)
+            print(bufs.dists)
+            print(bufs.inds)
 
             # -- to numpy --
             vpss_vals = vpss_vals.cpu().numpy()
@@ -136,8 +148,8 @@ class TestTopKSearch(unittest.TestCase):
         sigma = 25.
         dname = "text_tourbus_64"
         comp_flow = False
-        pyargs = {}
-        self.run_single_test(dname,sigma,comp_flow,pyargs)
+        args = edict({'ps':7,'pt':1})
+        self.run_single_test(dname,sigma,comp_flow,args)
 
         # -- test 2 --
         # sigma = 25.

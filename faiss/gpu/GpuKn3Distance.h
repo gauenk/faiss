@@ -22,7 +22,7 @@ class GpuResourcesProvider;
 // };
 
 enum class Kn3FxnName {
-    KDISTS = 1,
+    KDIST = 1,
     KFILL = 2,
     FILLOUT = 3,
     FILLIN = 4,
@@ -34,7 +34,7 @@ struct GpuKn3DistanceParams {
     GpuKn3DistanceParams()
             : metric(faiss::MetricType::METRIC_L2),
               metricArg(0),
-              fxn_name(Kn3FxnName::KDISTS),
+              fxn_name(Kn3FxnName::KDIST),
               k(0),
               ps(0),
               pt(0),

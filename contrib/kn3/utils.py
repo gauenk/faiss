@@ -22,6 +22,20 @@ def get_buf(D,nq,k,device,dtype):
         assert (D.dtype == dtype)
     return D
 
+def get_patches(patches,pshape,device,dtype):
+    if patches is None:
+        patches = torch.empty(pshape, device=device, dtype=dtype)
+    else:
+        assert patches.shape == pshape
+        # interface takes void*, we need to check this
+        assert (patches.dtype == dtype)
+    return patches
+
+def get_contiguous(tensor):
+    if not tensor.is_contiguous():
+        tensor = tensor.contiguous()
+    return tensor
+
 def check_contiguous(xq):
     if xq.is_contiguous():
         xq_row_major = True
@@ -82,3 +96,14 @@ def get_3d_inds(inds,c,h,w):
     aug_inds = rearrange(aug_inds,'three b n -> (b n) three')
 
     return aug_inds
+
+# ------------------------------
+#
+#      Misc
+#
+# ------------------------------
+
+def optional(pydict,key,default):
+    if pydict is None: return default
+    elif not(key in pydict): return default
+    else: return pydict[key]

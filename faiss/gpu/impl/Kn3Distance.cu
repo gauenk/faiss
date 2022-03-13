@@ -30,17 +30,12 @@ namespace faiss {
 namespace gpu {
 
 template <typename T>
-void runKn3Distance(
-                    bool computeL2,
-                    GpuResources* res,
+void runKn3Distance(GpuResources* res,
                     cudaStream_t stream,
                     Tensor<T, 4, true>& srch_burst,
                     Tensor<int, 2, true>& queries,
-                    bool queriesRowMajor,
-                    int k,
                     Tensor<float, 2, true>& outDistances,
-                    Tensor<int, 2, true>& outIndices,
-                    bool ignoreOutDistances) {
+                    Tensor<int, 2, true>& outIndices) {
     // The # of centroids in `centroids` based on memory layout
     auto nchnls = srch_burst.getSize(0);
     auto nframes = srch_burst.getSize(1);
@@ -48,28 +43,26 @@ void runKn3Distance(
     auto width = srch_burst.getSize(3);
 
     // The # of queries in `queries` based on memory layout
-    auto numQueries = queries.getSize(queriesRowMajor ? 0 : 1);
+    auto numQueries = queries.getSize(0);
+    auto qdim = queries.getSize(1);
+
 
     // The dimensions of the vectors to consider
-    auto dim = queries.getSize(queriesRowMajor ? 1 : 0);
-
+    FAISS_ASSERT(qdim == 3);
     FAISS_ASSERT(outDistances.getSize(0) == numQueries);
     FAISS_ASSERT(outIndices.getSize(0) == numQueries);
-    FAISS_ASSERT(outDistances.getSize(1) == k);
-    FAISS_ASSERT(outIndices.getSize(1) == k);
 
     // If we're querying against a 0 sized set, just return empty results
-    thrust::fill(
-                 thrust::cuda::par.on(stream),
+    fprintf(stdout,"filling.\n");
+    thrust::fill(thrust::cuda::par.on(stream),
                  outDistances.data(),
                  outDistances.end(),
-                 Limits<float>::getMax());
+                 10.);
 
-    thrust::fill(
-                 thrust::cuda::par.on(stream),
+    thrust::fill(thrust::cuda::par.on(stream),
                  outIndices.data(),
                  outIndices.end(),
-                 -1);
+                 2);
 
     return;
 
@@ -321,22 +314,14 @@ void runL2Distance(
         cudaStream_t stream,
         Tensor<T, 4, true>& srch_burst,
         Tensor<int, 2, true>& queries,
-        bool queriesRowMajor,
-        int k,
         Tensor<float, 2, true>& outDistances,
-        Tensor<int, 2, true>& outIndices,
-        bool ignoreOutDistances = false) {
-    runKn3Distance<T>(
-            true, // L2
-            res,
-            stream,
-            srch_burst,
-            queries,
-            queriesRowMajor,
-            k,
-            outDistances,
-            outIndices,
-            ignoreOutDistances);
+        Tensor<int, 2, true>& outIndices) {
+    runKn3Distance<T>(res,
+                      stream,
+                      srch_burst,
+                      queries,
+                      outDistances,
+                      outIndices);
 }
 
 //
@@ -348,21 +333,14 @@ void runL2Distance(
         cudaStream_t stream,
         Tensor<float, 4, true>& srch_burst,
         Tensor<int, 2, true>& queries,
-        bool queriesRowMajor,
-        int k,
         Tensor<float, 2, true>& outDistances,
-        Tensor<int, 2, true>& outIndices,
-        bool ignoreOutDistances) {
-    runL2Distance<float>(
-            res,
-            stream,
-            srch_burst,
-            queries,
-            queriesRowMajor,
-            k,
-            outDistances,
-            outIndices,
-            ignoreOutDistances);
+        Tensor<int, 2, true>& outIndices){
+    runL2Distance<float>(res,
+                         stream,
+                         srch_burst,
+                         queries,
+                         outDistances,
+                         outIndices);
 }
 
 void runL2Distance(
@@ -370,21 +348,15 @@ void runL2Distance(
         cudaStream_t stream,
         Tensor<half, 4, true>& srch_burst,
         Tensor<int, 2, true>& queries,
-        bool queriesRowMajor,
-        int k,
         Tensor<float, 2, true>& outDistances,
-        Tensor<int, 2, true>& outIndices,
-        bool ignoreOutDistances) {
+        Tensor<int, 2, true>& outIndices) {
     runL2Distance<half>(
             res,
             stream,
             srch_burst,
             queries,
-            queriesRowMajor,
-            k,
             outDistances,
-            outIndices,
-            ignoreOutDistances);
+            outIndices);
 }
 
 } // namespace gpu
