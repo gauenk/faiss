@@ -16,13 +16,13 @@ def run_fill_output(val_dists, val_inds):
     device = "cuda:0"
     res = faiss.StandardGpuResources()
 
-
     # -- create dummy data --
     tf32,ti32 = th.float32,th.int32
     xb = th.zeros((10,10,10,10),device=device,dtype=tf32)
     xq = th.zeros((10,3),device=device,dtype=ti32)
 
     # -- init params --
+    ws,wf,wb = 10,6,6
     ps,pt = 7,1
     k = 3
     D,I = None,None
@@ -54,6 +54,11 @@ def run_fill_output(val_dists, val_inds):
     args.nchnls = c
     args.height = h
     args.width = w
+    args.ws = ws
+    args.wf = wf
+    args.wb = wb
+    args.fflow = xb_ptr # just some pointer with enough mem alloced
+    args.bflow = xb_ptr # just some pointer with enough mem alloced
     args.srch_burst = xb_ptr
     args.vectorType = xb_type
     args.queries = xq_ptr
@@ -85,6 +90,7 @@ def run_fill_input(val_burst, val_query, bshape, qsize):
     xq = th.zeros((qsize,3),device=device,dtype=ti32)
 
     # -- init params --
+    ws,wf,wb = 10,6,6
     ps,pt = 7,1
     k = 3
     D,I = None,None
@@ -116,6 +122,11 @@ def run_fill_input(val_burst, val_query, bshape, qsize):
     args.nchnls = c
     args.height = h
     args.width = w
+    args.ws = ws
+    args.wf = wf
+    args.wb = wb
+    args.fflow = xb_ptr # just some pointer with enough mem alloced
+    args.bflow = xb_ptr # just some pointer with enough mem alloced
     args.dims = d
     args.srch_burst = xb_ptr
     args.vectorType = xb_type
@@ -150,6 +161,7 @@ def run_fill_patches(val, pshape, t):
     patches = th.zeros(pshape,device=device,dtype=tf32)
 
     # -- init params --
+    ws,wf,wb = 10,6,6
     D,I = None,None
 
     # -- check sizes --
@@ -180,6 +192,11 @@ def run_fill_patches(val, pshape, t):
     args.nchnls = c
     args.height = h
     args.width = w
+    args.ws = ws
+    args.wf = wf
+    args.wb = wb
+    args.fflow = xb_ptr # just some pointer with enough mem alloced
+    args.bflow = xb_ptr # just some pointer with enough mem alloced
     args.dims = d
     args.srch_burst = xb_ptr
     args.patches = patches_ptr

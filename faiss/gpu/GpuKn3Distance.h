@@ -38,6 +38,9 @@ struct GpuKn3DistanceParams {
               k(0),
               ps(0),
               pt(0),
+              ws(0),
+              wf(0),
+              wb(0),
               nchnls(0),
               nframes(0),
               height(0),
@@ -45,6 +48,8 @@ struct GpuKn3DistanceParams {
               srch_burst(nullptr),
               fill_burst(nullptr),
               patches(nullptr),
+              fflow(nullptr),
+              bflow(nullptr),
               vectorType(DistanceDataType::F32),
               queries(nullptr),
               queriesRowMajor(true),
@@ -76,6 +81,7 @@ struct GpuKn3DistanceParams {
 
     /// Patchsize dimensionality
     int ps,pt;
+    int ws,wf,wb;
 
     //
     // Vectors being queried
@@ -87,6 +93,8 @@ struct GpuKn3DistanceParams {
     const void* srch_burst;
     const void* fill_burst;
     const void* patches;
+    const void* fflow;
+    const void* bflow;
     int nchnls,nframes,height,width;
     DistanceDataType vectorType;
 

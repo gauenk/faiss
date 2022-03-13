@@ -15,7 +15,7 @@ from faiss.contrib.torch_utils import *
 
 def get_buf(D,nq,k,device,dtype):
     if D is None:
-        D = torch.empty(nq, k, device=device, dtype=dtype)
+        D = th.empty(nq, k, device=device, dtype=dtype)
     else:
         assert D.shape == (nq, k)
         # interface takes void*, we need to check this
@@ -24,7 +24,7 @@ def get_buf(D,nq,k,device,dtype):
 
 def get_patches(patches,pshape,device,dtype):
     if patches is None:
-        patches = torch.empty(pshape, device=device, dtype=dtype)
+        patches = th.empty(pshape, device=device, dtype=dtype)
     else:
         assert patches.shape == pshape
         # interface takes void*, we need to check this
@@ -47,10 +47,10 @@ def check_contiguous(xq):
     return xq_row_major
 
 def get_float_ptr(xb):
-    if xb.dtype == torch.float32:
+    if xb.dtype == th.float32:
         xb_type = faiss.DistanceDataType_F32
         xb_ptr = swig_ptr_from_FloatTensor(xb)
-    elif xb.dtype == torch.float16:
+    elif xb.dtype == th.float16:
         xb_type = faiss.DistanceDataType_F16
         xb_ptr = swig_ptr_from_HalfTensor(xb)
     else:
@@ -58,15 +58,25 @@ def get_float_ptr(xb):
     return xb_ptr,xb_type
 
 def get_int_ptr(I):
-    if I.dtype == torch.int64:
+    if I.dtype == th.int64:
         I_type = faiss.IndicesDataType_I64
         I_ptr = swig_ptr_from_IndicesTensor(I)
-    elif I.dtype == I.dtype == torch.int32:
+    elif I.dtype == I.dtype == th.int32:
         I_type = faiss.IndicesDataType_I32
         I_ptr = swig_ptr_from_IntTensor(I)
     else:
         raise TypeError('I must be i64 or i32')
     return I_ptr,I_type
+
+def get_flow(flow,shape,device,flow_alloced=None):
+    tf32 = th.float32
+    if flow is None and not(flow_alloced is None):
+        return flow_alloced
+    elif flow is None:
+        flow = th.zeros(shape,dtype=tf32,device=device)
+    else:
+        return flow
+
 
 # ------------------------------
 #

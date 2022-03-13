@@ -30,15 +30,11 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
     FAISS_THROW_IF_NOT_MSG(args.width > 0, "bfKn3: image width must be > 0");
     FAISS_THROW_IF_NOT_MSG(
             args.srch_burst, "bfKn3: vectors must be provided (passed null)");
-    FAISS_THROW_IF_NOT_MSG(
-            args.numQueries > 0, "bfKn3: numQueries must be > 0");
-    FAISS_THROW_IF_NOT_MSG(
-            args.queries, "bfKn3: queries must be provided (passed null)");
-    FAISS_THROW_IF_NOT_MSG(
-            args.outDistances,
+    FAISS_THROW_IF_NOT_MSG(args.numQueries > 0, "bfKn3: numQueries must be > 0");
+    FAISS_THROW_IF_NOT_MSG(args.queries, "bfKn3: queries must be provided (passed null)");
+    FAISS_THROW_IF_NOT_MSG(args.outDistances,
             "bfKn3: outDistances must be provided (passed null)");
-    FAISS_THROW_IF_NOT_MSG(
-            args.outIndices || args.k == -1,
+    FAISS_THROW_IF_NOT_MSG(args.outIndices || args.k == -1,
             "bfKn3: outIndices must be provided (passed null)");
     static_assert(sizeof(int) == 4, "");
     
@@ -58,17 +54,28 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
 
     // Distances and Queries -> Device
     auto srch_burst = toDeviceTemporary<T, 4>(
-            res,
-            device,
+            res,device,
             const_cast<T*>(reinterpret_cast<const T*>(args.srch_burst)),
             stream,
             {args.nframes,args.nchnls,args.height,args.width});
     auto tQueries = toDeviceTemporary<int, 2>(
-            res,
-            device,
+            res,device,
             const_cast<int*>(reinterpret_cast<const int*>(args.queries)),
             stream,
             {args.numQueries,3});
+
+    // Allocate fFlow, bFlow
+    auto fflow = toDeviceTemporary<T, 4>(
+            res,device,
+            const_cast<T*>(reinterpret_cast<const T*>(args.fflow)),
+            stream,
+            {args.nframes,args.nchnls,args.height,args.width});
+    auto bflow = toDeviceTemporary<T, 4>(
+            res,
+            device,
+            const_cast<T*>(reinterpret_cast<const T*>(args.bflow)),
+            stream,
+            {args.nframes,args.nchnls,args.height,args.width});
 
     // Output Distances and Inds
     auto tOutDistances = toDeviceTemporary<float, 2>(res,
@@ -89,7 +96,9 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
 
       // Only _Compute_ the Nearest Neighbors (no fill)
       bfKn3OnDevice<T>(res,device,stream,
+                       args.ps,args.pt,args.wf,args.wb,args.ws,
                        srch_burst,tQueries,
+                       fflow,bflow,
                        tOutDistances,
                        tOutIntIndices);
 
@@ -104,8 +113,10 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
       bfKn3FillOnDevice<T>(res,
                            device,
                            stream,
+                           args.ps,args.pt,args.wf,args.wb,args.ws,
                            srch_burst,
                            tQueries,
+                           fflow,bflow,
                            tOutDistances,
                            tOutIntIndices);
 

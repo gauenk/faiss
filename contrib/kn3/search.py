@@ -9,14 +9,21 @@ import torch as th
 
 # -- local --
 from .utils import get_buf,check_contiguous,get_contiguous,\
-    get_float_ptr,get_int_ptr,optional,get_patches
+    get_float_ptr,get_int_ptr,optional,get_patches,get_flow
 
-def get_faiss_args(xb,xb_fill,xq,args,bufs,fxn_name=faiss.Kn3FxnName_KDIST):
+def get_faiss_args(xb,xb_fill,xq,args,flows,bufs,fxn_name=faiss.Kn3FxnName_KDIST):
 
     # -- unpack args --
     k = optional(args,'k',-1)
     ps = optional(args,'ps',7)
     pt = optional(args,'pt',1)
+    ws = optional(args,'ws',27)
+    wf = optional(args,'wf',6)
+    wb = optional(args,'wb',6)
+
+    # -- unpack flows --
+    fflow = optional(flows,'fflow',None)
+    bflow = optional(flows,'bflow',None)
 
     # -- unpack bufs --
     patches = optional(bufs,'patches',None)
@@ -44,6 +51,11 @@ def get_faiss_args(xb,xb_fill,xq,args,bufs,fxn_name=faiss.Kn3FxnName_KDIST):
     if k == -1: k = D.shape[1]
     elif D is None: assert k != -1
 
+    # -- alloc/format flows --
+    fshape = (t,2,h,w)
+    fflow = get_flow(fflow,fshape,device)
+    bflow = get_flow(bflow,fshape,device,fflow)
+
     # -- alloc/format bufs --
     D = get_buf(D,nq,k,device,tf32)
     I = get_buf(I,nq,k,device,ti32)
@@ -64,18 +76,28 @@ def get_faiss_args(xb,xb_fill,xq,args,bufs,fxn_name=faiss.Kn3FxnName_KDIST):
     I_ptr,I_type = get_int_ptr(I)
     D_ptr,D_type = get_float_ptr(D)
     patches_ptr,_ = get_float_ptr(patches)
+    fflow_ptr,_ = get_float_ptr(fflow)
+    bflow_ptr,_ = get_float_ptr(bflow)
 
     # -- create args --
     args = faiss.GpuKn3DistanceParams()
     args.fxn_name = fxn_name
+
     args.k = k
     args.ps = ps
     args.pt = pt
+    args.ws = ws
+    args.wf = wf
+    args.wb = wb
+
     args.nframes = t
     args.nchnls = c
     args.height = h
     args.width = w
-    args.dims = d
+
+    args.fflow = fflow_ptr
+    args.bflow = bflow_ptr
+
     args.srch_burst = xb_ptr
     args.fill_burst = xbfill_ptr
     args.patches = patches_ptr
@@ -99,7 +121,8 @@ def run_search(srch_img,srch_inds,flows,sigma,srch_args,bufs):
     # -- faiss args --
     device = srch_img.device
     res = faiss.StandardGpuResources()
-    args = get_faiss_args(srch_img,None,srch_inds,srch_args,bufs,
+    args = get_faiss_args(srch_img,None,srch_inds,
+                          srch_args,flows,bufs,
                           fxn_name=faiss.Kn3FxnName_KDIST)
 
     # -- exec --

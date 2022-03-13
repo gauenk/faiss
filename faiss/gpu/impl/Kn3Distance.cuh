@@ -21,16 +21,22 @@ class GpuResources;
 void runL2Distance(
         GpuResources* resources,
         cudaStream_t stream,
+        int ps, int pt, int wf, int wb, int ws,
         Tensor<float, 4, true>& srch_burst,
         Tensor<int, 2, true>& queries,
+        Tensor<float, 4, true>& fflow,
+        Tensor<float, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
         Tensor<int, 2, true>& outIndices);
 
 void runL2Distance(
         GpuResources* resources,
         cudaStream_t stream,
+        int ps, int pt, int wf, int wb, int ws,
         Tensor<half, 4, true>& srch_burst,
         Tensor<int, 2, true>& queries,
+        Tensor<half, 4, true>& fflow,
+        Tensor<half, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
         Tensor<int, 2, true>& outIndices);
 
@@ -44,8 +50,11 @@ void bfKn3OnDevice(
         GpuResources* resources,
         int device,
         cudaStream_t stream,
+        int ps, int pt, int wf, int wb, int ws,
         Tensor<T, 4, true>& srch_burst,
         Tensor<int, 2, true>& queries,
+        Tensor<T, 4, true>& fflow,
+        Tensor<T, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
         Tensor<int, 2, true>& outIndices) {
     DeviceScope ds(device);
@@ -55,8 +64,10 @@ void bfKn3OnDevice(
     fprintf(stdout,"standard search.\n");
     runL2Distance(resources,
                   stream,
+                  ps,pt,wf,wb,ws,
                   srch_burst,
                   queries,
+                  fflow,bflow,
                   outDistances,
                   outIndices);
 }
@@ -66,8 +77,11 @@ void bfKn3FillOnDevice(
         GpuResources* resources,
         int device,
         cudaStream_t stream,
+        int ps, int pt, int wf, int wb, int ws,
         Tensor<T, 4, true>& srch_burst,
         Tensor<int, 2, true>& queries,
+        Tensor<T, 4, true>& fflow,
+        Tensor<T, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
         Tensor<int, 2, true>& outIndices){
     DeviceScope ds(device);
@@ -76,8 +90,10 @@ void bfKn3FillOnDevice(
     fprintf(stdout,"This code needs the _fill_ component added.\n");
     runL2Distance(resources,
                   stream,
+                  ps,pt,wf,wb,ws,
                   srch_burst,
                   queries,
+                  fflow,bflow,
                   outDistances,
                   outIndices);
 }
