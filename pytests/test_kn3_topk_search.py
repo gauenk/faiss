@@ -117,7 +117,7 @@ class TestTopKSearch(unittest.TestCase):
             print(srch_inds.shape,kn3_vals.shape,kn3_inds.shape)
             bufs.dists = kn3_vals
             bufs.inds = kn3_inds
-            kn3.run_search(clean,srch_inds,flows,sigma,args,bufs)
+            kn3.run_search(clean/255.,srch_inds,flows,sigma/255.,args,bufs)
             print(bufs.dists)
             print(bufs.inds)
 

@@ -150,6 +150,7 @@ void kn3FillOutMats(
     return;
 }
 
+
 template <typename T>
 void kn3FillInMats(
         GpuResources* resources,
@@ -170,6 +171,42 @@ void kn3FillInMats(
                  queries.end(),fill_query);
 
     return;
+}
+
+// helper
+
+// We want to tile the search space by splitting ONLY "ws".
+// We don't want to split the "wf,wb" because we accumulate
+// "flow" offsets inside of the kernel....
+// but this means we share information across kernels which is not true.
+// one thread is ONE (proposed location,search location) pair
+// so actually this comment about splitting over only "ws" doesn't
+// make much sense.
+
+inline void chooseKn3TileSize(int numQueries,
+                              int numSearch,
+                              int elementSize,
+                              int& tileQueries,
+                              int& tileSearch) {
+    // The matrix multiplication should be large enough to be efficient, but if
+    // it is too large, we seem to lose efficiency as opposed to
+    // double-streaming. Each tile size here defines 1/2 of the memory use due
+    // to double streaming.
+    // Target 8 GB total useage 
+    auto totalMem = getCurrentDeviceProperties().totalGlobalMem;
+    int nstreams = 2;
+    long long targetUsage = 1024 * 1024 * 1024;
+    fprintf(stdout,"targetUsage: %lld\n",targetUsage);
+    targetUsage /= nstreams * elementSize; // usage per stream
+    targetUsage *= 2;
+    fprintf(stdout,"targetUsage: %lld\n",targetUsage);
+
+    // fix default queries to specific size
+    int preferredTileQueries = 20;
+    tileQueries = std::min(preferredTileQueries, numQueries);
+
+    // tileCols is the remainder size
+    tileSearch = std::min((int)(targetUsage / tileQueries), numSearch);
 }
 
 

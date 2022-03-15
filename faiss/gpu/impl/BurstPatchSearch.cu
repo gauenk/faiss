@@ -1,0 +1,772 @@
+/**
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+#include <faiss/gpu/utils/DeviceUtils.h>
+#include <faiss/gpu/utils/StaticUtils.h>
+#include <faiss/impl/FaissAssert.h>
+#include <faiss/gpu/impl/BurstPatchSearch.cuh>
+#include <faiss/gpu/utils/ConversionOperators.cuh>
+#include <faiss/gpu/utils/DeviceDefs.cuh>
+#include <faiss/gpu/utils/Float16.cuh>
+#include <faiss/gpu/utils/MathOperators.cuh>
+#include <faiss/gpu/utils/PtxUtils.cuh>
+#include <faiss/gpu/utils/Reductions.cuh>
+
+#include <algorithm>
+
+namespace faiss {
+namespace gpu {
+
+#define inline_min(a, b) ( (a) < (b) ? (a) : (b) )
+// #define macro_max(a, b) (a > b)? a: b 
+#define legal_access(a, b, c, d) ((((a) >= (c)) && (((a)+(b)) < (d))) ? true : false)
+
+template <typename T,int BatchQueries,int BatchSpace,bool NormLoop>
+__global__ void burstPatchSearchKernel(
+	Tensor<T, 4, true, int> burst,
+	Tensor<T, 4, true, int> fflow,
+	Tensor<T, 4, true, int> bflow,
+	Tensor<int, 2, true, int> query,
+	Tensor<float, 2, true, int> vals,
+	Tensor<int, 2, true, int> inds,
+    int start, int ps, int pt, int ws, int wf, int wb){
+    extern __shared__ char smemByte[]; // #warps * BatchQueries * BatchSearch * nelements
+    float* smem = (float*)smemByte;
+
+    // get the cuda vars 
+    int numWarps = utils::divUp(blockDim.x, kWarpSize); 
+    int laneId = getLaneId();
+    int threadId = threadIdx.x;
+    int warpId = threadId / kWarpSize;
+
+    // Warp Id to Frame [assuming patchsize = 7]
+    int numWarpsPerFrame = (ps*ps-1) / (kWarpSize+1) + 1; // "divUp"
+    int frame_index = warpId / numWarpsPerFrame; // proposal frame index
+
+    // Unpack Shapes [Burst]
+    int nframes = burst.getSize(0);
+    int nftrs = 1;//burst.getSize(1); // fixed to "1" since hsv searc
+    int height = burst.getSize(1);
+    int width = burst.getSize(1);
+    int wsHalf = (ws-1)/2;
+
+    // Unpack Shapes [Vals]
+    int numSearch = vals.getSize(0);
+    int k = vals.getSize(1);
+
+    // Unpack Shapes [Queries]
+    int numQueries = query.getSize(0);
+    int numQueryBlocks = numQueries / BatchQueries;
+
+    // Blocks to Indices
+    int numPerThread = ps*ps;
+    int queryIndexStart = BatchQueries*(blockIdx.x); // batch size is 1 
+    int spaceStart = BatchSpace*(blockIdx.y)+start; // batch size is 1
+    // int timeStart = -wb;
+    int timeWindowSize = wf + wb + 1;
+
+    // accumulation location for norm
+    float pixNorm[BatchQueries][BatchSpace];
+
+    /*
+    // determine if our batchsize is too big for the location;
+    // the batchsize at compile time might not be a multiple of batchsize at compute time.
+    bool lastRowTile = (rowStart + RowTileSize - 1) >= vals.getSize(0);
+    bool lastColTile = (colStart + ColTileSize - 1) >= vals.getSize(1);
+    bool lastBlockTile = (blockStart + BlockTileSize - 1) >= vals.getSize(2);
+    // bool lastTile = lastBlockTile || lastRowTile || lastColTile;
+    */
+
+    bool lastTile = false;
+
+    if (lastTile){
+    }else{
+      
+      if (NormLoop){
+
+      }else{
+        // A block of threads is the exact size of the vector
+#pragma unroll
+        for (int qidx = 0; qidx < BatchQueries; ++qidx) {
+#pragma unroll
+          for (int sidx = 0; sidx < BatchSpace; ++sidx) {
+
+            //
+            //  Get Locations from Offset
+            //
+
+            // Unpack Query Index [center pix of patch]
+            int queryIndex = queryIndexStart + qidx;
+            int r_query_row = query[queryIndex][1];
+            int r_query_col = query[queryIndex][2];
+              
+            // Reference Location [top-left of patch]
+            int r_frame = query[queryIndex][0];
+            int r_rowStart = r_query_row - ps/2;
+            int r_colStart = r_query_col - ps/2;
+
+            // Unpack Search Index [offset in search space]
+            int spaceIndex = spaceStart + sidx;
+            int space_row = spaceIndex / ws - wsHalf;
+            int space_col = spaceIndex % ws - wsHalf;
+
+            // Proposed Location [top-left of search patch]
+            int p_frame = r_frame - wb + frame_index;
+            int p_rowStart = r_rowStart + space_row;
+            int p_colStart = r_colStart + space_col;
+              
+            //
+            // Thread Index -> (t,h,w) location of patch delta
+            //
+
+            // features 
+            int ftr = threadIdx.x % nftrs;
+            int fDiv = threadIdx.x / nftrs;
+    		  
+            // width
+            int wIdx = fDiv % ps;
+            int wDiv = fDiv / ps;
+    		  
+            // height
+            int hIdx = wDiv % ps;
+            int hDiv = wDiv / ps;
+
+            //
+            // Location [top-left] + Offsets [threadIdx] = Patch Index
+            //
+    		  
+            // Ref Locs
+            int r_row = (r_rowStart + hIdx) % height;
+            int r_col = (r_colStart + wIdx) % width;
+
+            // Proposed Locs
+            int p_row = (p_rowStart + hIdx) % height;
+            int p_col = (p_colStart + wIdx) % width;
+    		  
+            // image values
+            T ref_val = burst[r_frame][ftr][r_row][r_col];
+            T tgt_val = burst[p_frame][ftr][p_row][p_col];
+            T diff = Math<T>::sub(ref_val,tgt_val);
+            pixNorm[qidx][sidx] = Math<T>::mul(diff,diff);
+          }
+        }
+      }
+
+      // Sum up all parts within each warp
+#pragma unroll
+        for (int qidx = 0; qidx < BatchQueries; ++qidx) {
+#pragma unroll
+          for (int sidx = 0; sidx < BatchSpace; ++sidx) {
+            pixNorm[qidx][sidx] = warpReduceAllSum(pixNorm[qidx][sidx]);
+          }
+        }
+
+        // Write each warp's first value into the shared "kernel" memory
+        if (laneId == 0) {
+#pragma unroll
+          for (int qidx = 0; qidx < BatchQueries; ++qidx) {
+#pragma unroll
+            for (int sidx = 0; sidx < BatchSpace; ++sidx) {
+              // int smemFrameIndex = frame_index;
+              // int smemQueryIndex = qidx * timeWindowSize;
+              // int smemSpaceIndex = sidx * BatchQueries * smemFrameIndex;
+              // int smemBatchIdx = smemFrameIndex + smemQueryIndex + smemSpaceIndex;
+              int smemQueryIndex = qidx;
+              int smemSpaceIndex = sidx * BatchQueries;
+              int smemBatchIdx = smemQueryIndex + smemSpaceIndex;
+              int smemIdx = smemBatchIdx * numWarps + warpId;
+              smem[smemIdx] = pixNorm[qidx][sidx];
+            }
+          }
+        }
+
+    }
+
+    // sync across all threads 
+    __syncthreads();
+
+    if (warpId == 0) {
+      int frame_index = threadIdx.x;
+      for(int widx = 0; widx < numWarpsPerFrame; ++widx){
+#pragma unroll
+        for (int qidx = 0; qidx < BatchQueries; ++qidx) {
+#pragma unroll
+          for (int sidx = 0; sidx < BatchSpace; ++sidx) {
+            // int smemFrameIndex = frame_index;
+            // int smemQueryIndex = qidx * timeWindowSize;
+            // int smemSpaceIndex = sidx * BatchQueries * smemFrameIndex;
+            // int smemBatchIdx = smemFrameIndex + smemQueryIndex + smemSpaceIndex;
+            int smemQueryIndex = qidx;
+            int smemSpaceIndex = sidx * BatchQueries;
+            int smemBatchIdx = smemQueryIndex + smemSpaceIndex;
+            int smemIdx = smemBatchIdx * numWarps + numWarpsPerFrame * frame_index + widx;
+            // smem[smemIdx] = pixNorm[qidx][sidx];
+            float val = 0;
+            if (frame_index < timeWindowSize){
+              val = smem[smemIdx];
+            }else{
+              val = 1000000; // something big.
+            }
+
+            int outRow = queryIndexStart + qidx;
+            // int outRow = qidx;
+            int outCol = frame_index;
+            if (outCol < k){
+              if (widx  == 0){
+                vals[outRow][outCol] = val;
+              }else{
+                vals[outRow][outCol] += val;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    /*
+    if (lastTile) { // our batchsizes are too big since we've run out of samples
+        // We are handling the very end of the input matrix rows
+	int numRowIters = vals.getSize(0) - rowStart;
+	numRowIters = inline_min(RowTileSize,(int)numRowIters);
+	int numColIters = vals.getSize(1) - colStart;
+	numColIters = inline_min(ColTileSize,(int)numColIters);
+	int numBlockIters = blocks.getSize(1)-blockStart;
+	numBlockIters = inline_min(BlockTileSize,(int)numBlockIters);
+	// printf("LAST TILE!\n");
+
+        for (int row = 0; row < numRowIters; ++row) {
+	  for (int col = 0; col < numColIters; ++col) {
+	    for (int blk = 0; blk < numBlockIters; ++blk) {
+
+	      
+	      // if legal access is false for any patch index,
+	      // this thread's work (and the other's on the same patch) are voided.
+
+	      if (NormLoop) {
+		pixNorm[0][0][0] = 0;
+
+		for (int txIndex = threadIdx.x;
+		     txIndex < dim;
+		     txIndex += blockDim.x) {
+
+		  // features 
+		  int ftr = txIndex % nftrs;
+		  int fDiv = txIndex / nftrs;
+
+		  // width
+		  int wIdx = fDiv % patchsize;
+		  int wDiv = fDiv / patchsize;
+
+		  // height
+		  int hIdx = wDiv % patchsize;
+		  int hDiv = wDiv / patchsize;
+
+		  // frame index
+		  int fIdx = hDiv % nframes;
+
+		  // ref image indices
+		  int refBlk = blockStart + blk;
+		  int refRow = rowStart + row + hIdx;
+		  int refCol = colStart + col + wIdx;
+
+		  // blocks
+		  int blRow = blocks[fIdx][refBlk][0];
+		  int blCol = blocks[fIdx][refBlk][1];
+		  int tRowStart = rowStartPix + blRow + row;
+		  int tColStart = colStartPix + blCol + col;
+
+		  // legal accesses only
+		  bool legalRowTgt = legal_access(tRowStart,(psSub1),0,heightPadded);
+		  bool legalColTgt = legal_access(tColStart,(psSub1),0,widthPadded);
+		  bool legalAccess = legalRowTgt && legalColTgt;
+
+		  // image indices
+		  int targetRow = tRowStart + hIdx;
+		  int targetCol = tColStart + wIdx;
+
+		  TVec burst_val = legalAccess ?
+		    burst[fIdx][ftr][targetRow][targetCol]
+		    : TVecMax;
+		  TVec ave_val = ave[ftr][refBlk][refRow][refCol];
+		  TVec delta_val = Math<TVec>::sub(burst_val,ave_val);
+
+		  delta_val = Math<TVec>::mul(delta_val,delta_val);
+		  delta_val = Math<TVec>::mul(delta_val,inv_frames);
+		  pixNorm[0][0][0] = pixNorm[0][0][0] + Math<TVec>::reduceAdd(delta_val);
+
+		}
+	      } else {
+
+		// features 
+		int ftr = threadIdx.x % nftrs;
+		int fDiv = threadIdx.x / nftrs;
+
+		// width
+		int wIdx = fDiv % patchsize;
+		int wDiv = fDiv / patchsize;
+
+		// height
+		int hIdx = wDiv % patchsize;
+		int hDiv = wDiv / patchsize;
+
+		// frame index
+		int fIdx = hDiv % nframes;
+
+		// ref image indices
+		int refBlk = blockStart + blk;
+		int refRow = rowStart + row + hIdx;
+		int refCol = colStart + col + wIdx;
+
+		// blocks
+		int blRow = blocks[fIdx][refBlk][0];
+		int blCol = blocks[fIdx][refBlk][1];
+		int tRowStart = rowStartPix + blRow + row;
+		int tColStart = colStartPix + blCol + col;
+
+		// legal accesses only
+		bool legalRowTgt = legal_access(tRowStart,(psSub1),0,heightPadded);
+		bool legalColTgt = legal_access(tColStart,(psSub1),0,widthPadded);
+		bool legalAccess = legalRowTgt && legalColTgt;
+
+		// image indices
+		int targetRow = tRowStart + hIdx;
+		int targetCol = tColStart + wIdx;
+
+		TVec burst_val = legalAccess ?
+		  burst[fIdx][ftr][targetRow][targetCol]
+		  : TVecMax;
+		TVec ave_val = ave[ftr][refBlk][refRow][refCol];
+		TVec delta_val = Math<TVec>::sub(burst_val,ave_val);
+
+		delta_val = Math<TVec>::mul(delta_val,delta_val);
+		delta_val = Math<TVec>::mul(delta_val,inv_frames);
+		pixNorm[0][0][0] = Math<TVec>::reduceAdd(delta_val);
+	      }
+
+	      pixNorm[0][0][0] = warpReduceAllSum(pixNorm[0][0][0]);
+	      if (laneId == 0) {
+		int smemRowIdx = row;
+		int smemColIdx = col * RowTileSize;
+		int smemBlockIdx = blk * ColTileSize * RowTileSize;
+		int smemBatchIdx = smemBlockIdx + smemRowIdx + smemColIdx;
+		int smemIdx = smemBatchIdx * numWarps + warpId;
+		smem[smemIdx]=pixNorm[0][0][0];
+	      }
+	    }
+	  }
+	}
+    }else {
+        // We are guaranteed that all RowTileSize rows are available in
+        // [rowStart, rowStart + RowTileSize)
+
+        if (NormLoop) {
+
+            // A single block of threads is not big enough to span each
+            // vector
+  	    TVec tmp[RowTileSize][ColTileSize][BlockTileSize];
+
+#pragma unroll
+            for (int row = 0; row < RowTileSize; ++row) {
+#pragma unroll
+	      for (int col = 0; col < ColTileSize; ++col) {
+#pragma unroll
+		for (int blk = 0; blk < BlockTileSize; ++blk) {
+		  pixNorm[row][col][blk] = 0;
+		}
+	      }
+	    }
+
+            for (int txIndex = threadIdx.x;
+		 txIndex < dim;
+                 txIndex += blockDim.x) {
+#pragma unroll
+	      for (int row = 0; row < RowTileSize; ++row) {
+#pragma unroll
+		for (int col = 0; col < ColTileSize; ++col) {
+#pragma unroll
+		  for (int blk = 0; blk < BlockTileSize; ++blk) {
+
+    		    // features 
+    		    int ftr = txIndex % nftrs;
+    		    int fDiv = txIndex / nftrs;
+    		    
+    		    // width
+    		    int wIdx = fDiv % patchsize;
+    		    int wDiv = fDiv / patchsize;
+    		    
+    		    // height
+    		    int hIdx = wDiv % patchsize;
+    		    int hDiv = wDiv / patchsize;
+    		    
+    		    // frame index
+    		    int fIdx = hDiv % nframes;
+    		    
+		    // ref image indices
+		    int refBlk = blockStart + blk;
+		    int refRow = rowStart + row + hIdx;
+		    int refCol = colStart + col + wIdx;
+
+    		    // blocks
+		    int blRow = blocks[fIdx][refBlk][0];
+		    int blCol = blocks[fIdx][refBlk][1];
+		    int tRowStart = rowStartPix + blRow + row;
+		    int tColStart = colStartPix + blCol + col;
+    		    
+    		    // legal accesses only
+    		    bool legalRowTgt = legal_access(tRowStart,(psSub1),0,heightPadded);
+    		    bool legalColTgt = legal_access(tColStart,(psSub1),0,widthPadded);
+    		    bool legalAccess = legalRowTgt && legalColTgt;
+    		    
+    		    // image indices
+    		    int targetRow = tRowStart + hIdx;
+    		    int targetCol = tColStart + wIdx;
+    		    
+		    // image indices
+    		    TVec burst_val = legalAccess ?
+    		      burst[fIdx][ftr][targetRow][targetCol]
+    		      : TVecMax;
+    		    TVec ave_val = ave[ftr][refBlk][refRow][refCol];
+		    tmp[row][col][blk] = Math<TVec>::sub(burst_val,ave_val);
+
+		  }
+		}
+	      }
+
+
+#pragma unroll
+	      for (int row = 0; row < RowTileSize; ++row) {
+#pragma unroll
+		for (int col = 0; col < ColTileSize; ++col) {
+#pragma unroll
+		  for (int blk = 0; blk < BlockTileSize; ++blk) {
+		    tmp[row][col][blk] = Math<TVec>::mul(tmp[row][col][blk],
+							 tmp[row][col][blk]);
+		  }
+		}
+	      }
+
+
+#pragma unroll
+	      for (int row = 0; row < RowTileSize; ++row) {
+#pragma unroll
+		for (int col = 0; col < ColTileSize; ++col) {
+#pragma unroll
+		  for (int blk = 0; blk < BlockTileSize; ++blk) {
+		    tmp[row][col][blk] = Math<TVec>::mul(tmp[row][col][blk],inv_frames);
+		  }
+		}
+	      }
+
+#pragma unroll
+	      for (int row = 0; row < RowTileSize; ++row) {
+#pragma unroll
+		for (int col = 0; col < ColTileSize; ++col) {
+#pragma unroll
+		  for (int blk = 0; blk < BlockTileSize; ++blk) {
+		    pixNorm[row][col][blk] =
+		      pixNorm[row][col][blk] + Math<TVec>::reduceAdd(tmp[row][col][blk]);
+		  }
+		}
+	      }
+	    }
+        } else {
+
+            // A block of threads is the exact size of the vector
+#pragma unroll
+            for (int row = 0; row < RowTileSize; ++row) {
+#pragma unroll
+	      for (int col = 0; col < ColTileSize; ++col) {
+#pragma unroll
+		for (int blk = 0; blk < BlockTileSize; ++blk) {
+
+    		  // features 
+    		  int ftr = threadIdx.x % nftrs;
+    		  int fDiv = threadIdx.x / nftrs;
+    		  
+    		  // width
+    		  int wIdx = fDiv % patchsize;
+    		  int wDiv = fDiv / patchsize;
+    		  
+    		  // height
+    		  int hIdx = wDiv % patchsize;
+    		  int hDiv = wDiv / patchsize;
+    		  
+    		  // frame index
+    		  int fIdx = hDiv % nframes;
+
+		  // ref image indices
+		  int refBlk = blockStart + blk;
+		  int refRow = rowStart + row + hIdx;
+		  int refCol = colStart + col + wIdx;
+
+    		  // blocks
+		  int blRow = blocks[fIdx][refBlk][0];
+		  int blCol = blocks[fIdx][refBlk][1];
+		  int tRowStart = rowStartPix + blRow + row;
+		  int tColStart = colStartPix + blCol + col;
+    		  
+    		  // legal accesses only
+    		  bool legalRowTgt = legal_access(tRowStart,(psSub1),0,heightPadded);
+    		  bool legalColTgt = legal_access(tColStart,(psSub1),0,widthPadded);
+    		  bool legalAccess = legalRowTgt && legalColTgt;
+    		  
+    		  // image indices
+    		  int targetRow = tRowStart + hIdx;
+    		  int targetCol = tColStart + wIdx;
+
+		  // image values
+		  TVec burst_val = legalAccess ?
+		    burst[fIdx][ftr][targetRow][targetCol]
+		    : TVecMax;
+		  TVec ave_val = ave[ftr][refBlk][refRow][refCol];
+		  pixNorm[row][col][blk] = Math<TVec>::sub(burst_val,ave_val);
+
+		}
+	      }
+            }
+
+#pragma unroll
+            for (int row = 0; row < RowTileSize; ++row) {
+#pragma unroll
+	      for (int col = 0; col < ColTileSize; ++col) {
+#pragma unroll
+		for (int blk = 0; blk < BlockTileSize; ++blk) {
+		  pixNorm[row][col][blk] = Math<TVec>::mul(pixNorm[row][col][blk],
+							   pixNorm[row][col][blk]);
+		}
+	      }
+            }
+
+
+#pragma unroll
+            for (int row = 0; row < RowTileSize; ++row) {
+#pragma unroll
+	      for (int col = 0; col < ColTileSize; ++col) {
+#pragma unroll
+		for (int blk = 0; blk < BlockTileSize; ++blk) {
+		  pixNorm[row][col][blk] = Math<TVec>::mul(pixNorm[row][col][blk],
+							   inv_frames);
+		}
+	      }
+            }
+
+#pragma unroll
+            for (int row = 0; row < RowTileSize; ++row) {
+#pragma unroll
+	      for (int col = 0; col < ColTileSize; ++col) {
+#pragma unroll
+		for (int blk = 0; blk < BlockTileSize; ++blk) {
+		  pixNorm[row][col][blk] = Math<TVec>::reduceAdd(pixNorm[row][col][blk]);
+		}
+	      }
+	    }
+	} // if-else NormLoop
+
+        // Sum up all parts within each warp
+#pragma unroll
+        for (int row = 0; row < RowTileSize; ++row) {
+#pragma unroll
+	  for (int col = 0; col < ColTileSize; ++col) {
+#pragma unroll
+	    for (int blk = 0; blk < BlockTileSize; ++blk) {
+	      pixNorm[row][col][blk] = warpReduceAllSum(pixNorm[row][col][blk]);
+	    }
+	  }
+	}
+
+        if (laneId == 0) {
+#pragma unroll
+	  for (int row = 0; row < RowTileSize; ++row) {
+#pragma unroll
+	    for (int col = 0; col < ColTileSize; ++col) {
+#pragma unroll
+	      for (int blk = 0; blk < BlockTileSize; ++blk) {
+		int smemRowIdx = row;
+		int smemColIdx = col * RowTileSize;
+		int smemBlockIdx = blk * ColTileSize * RowTileSize;
+		int smemBatchIdx = smemBlockIdx + smemRowIdx + smemColIdx;
+		int smemIdx = smemBatchIdx * numWarps + warpId;
+		smem[smemIdx] = pixNorm[row][col][blk];
+	      }
+	    }
+	  }
+        }
+    }
+
+    // printf(" pre sync threads \n");
+    __syncthreads();
+    // printf(" post sync threads \n");
+
+    // Sum across warps
+    // We swap "warpId" with "laneId" so a single Warp (the first one)
+    // can read back the elements into the local memory.
+    if (warpId == 0) {
+#pragma unroll
+      for (int row = 0; row < RowTileSize; ++row) {
+#pragma unroll
+	for (int col = 0; col < ColTileSize; ++col) {
+#pragma unroll
+	  for (int blk = 0; blk < BlockTileSize; ++blk) {
+	    int smemRowIdx = row;
+	    int smemColIdx = col * RowTileSize;
+	    int smemBlockIdx = blk * ColTileSize * RowTileSize;
+	    int smemBatchIdx = smemBlockIdx + smemRowIdx + smemColIdx;
+	    int smemIdx = smemBatchIdx * numWarps + laneId;
+	    pixNorm[row][col][blk] = laneId < numWarps ? smem[smemIdx] : 0;
+	  }
+        }
+      }
+
+#pragma unroll
+      for (int row = 0; row < RowTileSize; ++row) {
+#pragma unroll
+	for (int col = 0; col < ColTileSize; ++col) {
+#pragma unroll
+	  for (int blk = 0; blk < BlockTileSize; ++blk) {
+	    pixNorm[row][col][blk] = warpReduceAllSum(pixNorm[row][col][blk]);
+	  }
+        }
+      }
+
+      // Write out answer
+      if (laneId == 0) {
+#pragma unroll
+	for (int row = 0; row < RowTileSize; ++row) {
+	  int outRow = rowStart + row;
+#pragma unroll
+	  for (int col = 0; col < ColTileSize; ++col) {
+	    int outCol = colStart + col;
+#pragma unroll
+	    for (int blk = 0; blk < BlockTileSize; ++blk) {
+	      int outBlock = blockStart + blk;
+	      if (lastTile) {
+		if (outRow < vals.getSize(0) && outCol < vals.getSize(1) && outBlock < vals.getSize(2)) {
+		  vals[outRow][outCol][outBlock] = NormSquared ?
+		    ConvertTo<float>::to(pixNorm[row][col][blk])
+		    : sqrtf(ConvertTo<float>::to(pixNorm[row][col][blk]));
+		}
+	      } else {
+		vals[outRow][outCol][outBlock] = NormSquared
+		  ? ConvertTo<float>::to(pixNorm[row][col][blk])
+		  : sqrtf(ConvertTo<float>::to(pixNorm[row][col][blk]));
+	      }
+	    }
+	  }
+	}
+      }
+    }
+    */
+}
+
+template <typename T>
+void runBurstNnfL2Norm(Tensor<T, 4, true>& burst,
+                       Tensor<T, 4, true>& fflow,
+                       Tensor<T, 4, true>& bflow,
+                       Tensor<int, 2, true>& query,
+                       Tensor<float, 2, true>& vals,
+                       Tensor<int, 2, true>& inds,
+                       int start, int numSearch,
+                       int ps, int pt, int ws, int wf, int wb,
+                       cudaStream_t stream){
+
+  int maxThreads = (int)getMaxThreadsCurrentDevice();
+  constexpr int batchQueries = 2;
+  constexpr int batchSpace = 1;
+  bool normLoop = false;
+
+#define RUN_BURST_PATCH_SEARCH(TYPE_T)			\
+    do {                                                                      \
+         if (normLoop) {                                                       \
+         burstPatchSearchKernel<TYPE_T,batchQueries,batchSpace,true>  \
+           <<<grid, block, smem, stream>>>(burst, fflow, bflow, query, vals, inds, \
+                                           start, ps, pt ,ws ,wf, wb);  \
+         } else {                                                              \
+         burstPatchSearchKernel<TYPE_T,batchQueries,batchSpace,false>  \
+           <<<grid, block, smem, stream>>>(burst, fflow, bflow, query, vals, inds, \
+                                           start, ps, pt ,ws ,wf, wb);  \
+         }                                                                     \
+     } while (0)
+
+//     // compute numThreads
+//     int nframes = burst.getSize(0);
+//     int nftrs = burst.getSize(1);
+//     int dim = patchsize*patchsize*nftrs*nframes;
+//     bool normLoop = dim > maxThreads;
+
+    int numQueries = query.getSize(0);
+    int numComps = batchQueries * batchSpace;
+
+    int timeWindowSize = wb + wf + 1;
+    int warpsPerFrame = (ps * ps - 1) / (kWarpSize + 1) + 1; // "divUp"
+    //int dim = timeWindowSize * ps * ps;// dim must include "gaps"; "ps x ps" fits into warp
+    int dim = warpsPerFrame * timeWindowSize * kWarpSize;
+    FAISS_ASSERT(dim < maxThreads);
+    int numThreads = std::min(dim, maxThreads);
+    int nWarps = utils::divUp(numThreads, kWarpSize);
+//     // numThreads = utils::roundUp(numThreads,kWarpSize); // round-up for warp reduce.
+    FAISS_ASSERT(ps == 7);
+
+//     // compute number of Grids
+//     int height = vals.getSize(0);
+//     int width = vals.getSize(1);
+//     int blockBatchSize = blocks.getSize(1);
+//     int numToComp = height * width * blockBatchSize;
+//     int numToCompPerKernel = rowTileSize * colTileSize * blockTileSize;
+//     int numHeightBlocks = utils::divUp(height, rowTileSize);
+//     int numWidthBlocks = utils::divUp(width, colTileSize);
+//     int numBlockBlocks = utils::divUp(blockBatchSize, blockTileSize);
+//     int nBlocks = utils::divUp(numToComp,numToCompPerKernel);
+
+    // get grids and threads 
+    int numQueryBlocks = numQueries / batchQueries;
+    auto grid = dim3(numQueryBlocks,numSearch);
+    auto block = dim3(numThreads);
+    auto smem = sizeof(float) * timeWindowSize * numComps * nWarps;
+    // auto grid = dim3(numHeightBlocks,numWidthBlocks,numBlockBlocks);
+    // auto block = dim3(numThreads);
+    // auto smem = sizeof(float) * numToCompPerKernel * nWarps;
+
+//     // weird convserion for me... ... idk
+//     float* tmpTVec;
+//     float tmp[1];
+//     tmp[0] = 100.;
+//     tmpTVec = reinterpret_cast<float*>(tmp);
+//     float TVecMax = tmpTVec[0];
+    RUN_BURST_PATCH_SEARCH(T);
+
+// #undef RUN_NNF_L2
+    CUDA_TEST_ERROR();
+}
+
+void runBurstNnfL2Norm(Tensor<float, 4, true>& burst,
+                       Tensor<float, 4, true> fflow,
+                       Tensor<float, 4, true> bflow,
+                       Tensor<int, 2, true>& query,
+                       Tensor<float, 2, true>& vals,
+                       Tensor<int, 2, true>& inds,
+                       int srch_start, int numSearch,
+                       int ps, int pt, int ws, int wf, int wb,
+                       cudaStream_t stream){
+  runBurstNnfL2Norm<float>(burst, fflow, bflow, query, vals, inds,
+                           srch_start, numSearch, ps, pt, ws, wf, wb, stream);
+}
+
+void runBurstNnfL2Norm(Tensor<half, 4, true>& burst,
+                       Tensor<half, 4, true> fflow,
+                       Tensor<half, 4, true> bflow,
+                       Tensor<int, 2, true>& query,
+                       Tensor<float, 2, true>& vals,
+                       Tensor<int, 2, true>& inds,
+                       int srch_start, int numSearch,
+                       int ps, int pt, int ws, int wf, int wb,
+                       cudaStream_t stream){
+  runBurstNnfL2Norm<half>(burst, fflow, bflow, query, vals, inds,
+                          srch_start, numSearch, ps, pt, ws, wf, wb, stream);
+}
+
+} // namespace gpu
+} // namespace faiss

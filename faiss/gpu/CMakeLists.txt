@@ -25,6 +25,7 @@ set(FAISS_GPU_SRC
   impl/BroadcastSum.cu
   impl/Distance.cu
   impl/Kn3Distance.cu
+  impl/BurstPatchSearch.cu
   impl/FlatIndex.cu
   impl/IVFAppend.cu
   impl/IVFBase.cu
@@ -102,6 +103,7 @@ set(FAISS_GPU_HEADERS
   impl/BroadcastSum.cuh
   impl/Distance.cuh
   impl/Kn3Distance.cuh
+  impl/BurstPatchSearch.cuh
   impl/DistanceUtils.cuh
   impl/FlatIndex.cuh
   impl/GeneralDistance.cuh

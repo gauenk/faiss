@@ -11,6 +11,7 @@
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/gpu/impl/BroadcastSum.cuh>
 #include <faiss/gpu/impl/Kn3Distance.cuh>
+#include <faiss/gpu/impl/BurstPatchSearch.cuh>
 #include <faiss/gpu/impl/DistanceUtils.cuh>
 #include <faiss/gpu/impl/L2Norm.cuh>
 #include <faiss/gpu/impl/L2Select.cuh>
@@ -60,38 +61,29 @@ void runKn3Distance(GpuResources* res,
 
     // If we're querying against a 0 sized set, just return empty results
     fprintf(stdout,"filling.\n");
-    thrust::fill(thrust::cuda::par.on(stream),
-                 outDistances.data(),
-                 outDistances.end(),
-                 Limits<float>::getMax());
-
-    thrust::fill(thrust::cuda::par.on(stream),
-                 outIndices.data(),
-                 outIndices.end(),-1);
+    // thrust::fill(thrust::cuda::par.on(stream),
+    //              outDistances.data(),
+    //              outDistances.end(),
+    //              Limits<float>::getMax());
+    // thrust::fill(thrust::cuda::par.on(stream),
+    //              outIndices.data(),
+    //              outIndices.end(),-1);
 
     // By default, aim to use up to 512 MB of memory for the processing, with
     // both number of queries and number of centroids being at least 512.
-    fprintf(stdout,"todo: create tile of rows and cols.\n");
-    // int tileRows = 10;
-    // int tileCols = 10;
-    // chooseTileSize(
-    //         numQueries,
-    //         numCentroids,
-    //         dim,
-    //         sizeof(T),
-    //         res->getTempMemoryAvailableCurrentDevice(),
-    //         tileRows,
-    //         tileCols);
-    // int numColTiles = utils::divUp(numCentroids, tileCols);
-    int tileQueries = 10;
-    int tileSearch = 10;
-    int numSearch = 1000;
+    int numSearch = ws*ws*(wf*wb+1);
+    int tileQueries,tileSearch;
+    chooseKn3TileSize(numQueries,numSearch,sizeof(T),tileQueries,tileSearch);
+    tileSearch = numSearch;
+    int numQueryTiles = utils::divUp(numQueries, tileQueries);
     int numSearchTiles = utils::divUp(numSearch, tileSearch);
+    fprintf(stdout,"numQueries,numSearch: %d,%d\n",numQueries,numSearch);
+    fprintf(stdout,"tileQueries,tileSearch: %d,%d\n",tileQueries,tileSearch);
+    fprintf(stdout,"numQueryTiles,numSearchTiles: %d,%d\n",numQueryTiles,numSearchTiles);
 
     // We can have any number of vectors to query against, even less than k, in
     // which case we'll return -1 for the index
     FAISS_ASSERT(k <= GPU_MAX_SELECTION_K); // select limitation
-
 
     // Temporary output memory space we'll use
     DeviceTensor<float, 2, true> distanceBuf1(
@@ -133,23 +125,21 @@ void runKn3Distance(GpuResources* res,
             interrupt = true;
             break;
         }
-        fprintf(stdout,"i-loop:[%d]\n",i);
+        // fprintf(stdout,"i-loop:[%d]\n",i);
 
         /*
-        int curQuerySize = std::min(tileRows, numQueries - i);
 
+          -- select correct data view --
+          
+        */
+        int curQuerySize = std::min(tileQueries, numQueries - i);
         auto outDistanceView = outDistances.narrow(0, i, curQuerySize);
         auto outIndexView = outIndices.narrow(0, i, curQuerySize);
-
-        auto queryView =
-                queries.narrow(queriesRowMajor ? 0 : 1, i, curQuerySize);
-        auto queryNormNiew = queryNorms.narrow(0, i, curQuerySize);
-
+        auto queryView = queries.narrow(0, i, curQuerySize);
         auto outDistanceBufRowView =
                 outDistanceBufs[curStream]->narrow(0, 0, curQuerySize);
         auto outIndexBufRowView =
                 outIndexBufs[curStream]->narrow(0, 0, curQuerySize);
-        */
 
         // Tile over search-space
         for (int j = 0; j < numSearch; j += tileSearch) {
@@ -157,24 +147,42 @@ void runKn3Distance(GpuResources* res,
                 interrupt = true;
                 break;
             }
-            fprintf(stdout,"j-loop:[%d]\n",j);
+            // fprintf(stdout,"j-loop:[%d]\n",j);
 
             /*
-            int curCentroidSize = std::min(tileCols, numCentroids - j);
-            int curColTile = j / tileCols;
 
-            auto centroidsView = sliceCentroids(
-                    centroids, centroidsRowMajor, j, curCentroidSize);
+              -- select correct data view --
+
+            */
+
+            int curSearchSize = std::min(tileSearch, numSearch - j);
+            int curSearchTile = j / tileSearch;
 
             auto distanceBufView = distanceBufs[curStream]
                                            ->narrow(0, 0, curQuerySize)
-                                           .narrow(1, 0, curCentroidSize);
-
+                                           .narrow(1, 0, curSearchSize);
             auto outDistanceBufColView =
-                    outDistanceBufRowView.narrow(1, k * curColTile, k);
+                    outDistanceBufRowView.narrow(1, k * curSearchTile, k);
             auto outIndexBufColView =
-                    outIndexBufRowView.narrow(1, k * curColTile, k);
+                    outIndexBufRowView.narrow(1, k * curSearchTile, k);
 
+
+            /*
+
+              -- exec kernel --
+
+            */
+            
+            if (curSearchSize == numSearch){ // we search all at once
+              runBurstNnfL2Norm(srch_burst,fflow,bflow,
+                                queryView,outDistanceView,outIndexView,
+                                j,curSearchSize,ps,pt,ws,wf,wb,stream);
+
+            }else{ // store in temp bufs
+
+            }
+
+            /*
             // L2: distance is ||c||^2 - 2qc + ||q||^2, we compute -2qc
             // IP: just compute qc
             // (query id x dim) x (centroid id, dim)' = (query id, centroid id)
