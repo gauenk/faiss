@@ -86,7 +86,7 @@ class TestTopKSearch(unittest.TestCase):
     def run_comparison(self,noisy,clean,sigma,flows,args):
 
         # -- fixed testing params --
-        K = 10
+        K = 15
         BSIZE = 50
         NBATCHES = 2
         shape = noisy.shape

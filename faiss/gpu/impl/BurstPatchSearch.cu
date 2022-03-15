@@ -111,8 +111,8 @@ __global__ void burstPatchSearchKernel(
               
             // Reference Location [top-left of patch]
             int r_frame = query[queryIndex][0];
-            int r_rowTop = r_query_row - ps/2;
-            int r_colLeft = r_query_col - ps/2;
+            int r_rowTop = r_query_row;// - ps/2;
+            int r_colLeft = r_query_col;// - ps/2;
 
             // Unpack Search Index [offset in search space]
             int spaceIndex = spaceStart + sidx;
@@ -145,16 +145,20 @@ __global__ void burstPatchSearchKernel(
             //
     		  
             // Ref Locs
-            int r_row = (r_rowTop + hIdx) % height;
-            int r_col = (r_colLeft + wIdx) % width;
-            r_row = (r_row >= 0) ? r_row : (-r_row);
-            r_col = (r_col >= 0) ? r_col : (-r_col);
+            int r_row = r_rowTop + hIdx % height;
+            int r_col = r_colLeft + wIdx % width;
+            r_row = (r_row < height) ? r_row : (2*height - r_row - 1);
+            r_col = (r_row < width) ? r_col : (2*width - r_col - 1);
+            r_row = (r_row >= 0) ? r_row : (-r_row)-1;
+            r_col = (r_col >= 0) ? r_col : (-r_col)-1;
             
             // Proposed Locs
             int p_row = (p_rowTop + hIdx) % height;
             int p_col = (p_colLeft + wIdx) % width;
-            p_row = (p_row >= 0) ? p_row : (-p_row);
-            p_col = (p_col >= 0) ? p_col : (-p_col);
+            p_row = (p_row < height) ?  p_row : (2*height - p_row - 1);
+            p_col = (p_row < width) ? p_col : (2*width - p_col - 1);
+            p_row = (p_row >= 0) ? p_row : (-p_row)-1;
+            p_col = (p_col >= 0) ? p_col : (-p_col)-1;
 
             // Check Legal Access [Proposed Location]
             bool flegal = (p_frame >= 0) && (p_frame < nframes);
@@ -169,6 +173,7 @@ __global__ void burstPatchSearchKernel(
             diff = flegal ? diff : (T)1e5;
             diff = rlegal ? diff : (T)0.;
             pixNorm[qidx][sidx] = diff;
+            // pixNorm[qidx][sidx] = p_row * height + p_col + 1e5*frame_index;
           }
         }
       }
