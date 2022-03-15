@@ -52,6 +52,7 @@ set(FAISS_GPU_SRC
   impl/scan/IVFInterleaved2048.cu
   impl/IcmEncoder.cu
   utils/BlockSelectFloat.cu
+  utils/BurstNnfSimpleBlockSelect.cu
   utils/DeviceUtils.cu
   utils/StackDeviceMemory.cpp
   utils/Timer.cpp
@@ -129,6 +130,7 @@ set(FAISS_GPU_HEADERS
   impl/scan/IVFInterleavedImpl.cuh
   impl/IcmEncoder.cuh
   utils/BlockSelectKernel.cuh
+  utils/BurstNnfSimpleBlockSelect.cuh
   utils/Comparators.cuh
   utils/ConversionOperators.cuh
   utils/CopyUtils.cuh

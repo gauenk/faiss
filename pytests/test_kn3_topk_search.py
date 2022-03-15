@@ -74,7 +74,7 @@ class TestTopKSearch(unittest.TestCase):
 
     def init_topk_shells(self,bsize,k,device):
         tf32,ti32 = th.float32,th.int32
-        vals = th.zeros((bsize,k),dtype=tf32,device=device)
+        vals = float("inf") * th.ones((bsize,k),dtype=tf32,device=device)
         inds = -th.ones((bsize,k),dtype=ti32,device=device)
         return vals,inds
 

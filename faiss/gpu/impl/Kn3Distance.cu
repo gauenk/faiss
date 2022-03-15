@@ -16,6 +16,7 @@
 #include <faiss/gpu/impl/L2Norm.cuh>
 #include <faiss/gpu/impl/L2Select.cuh>
 #include <faiss/gpu/utils/BlockSelectKernel.cuh>
+#include <faiss/gpu/utils/BurstNnfSimpleBlockSelect.cuh>
 #include <faiss/gpu/utils/DeviceDefs.cuh>
 #include <faiss/gpu/utils/Limits.cuh>
 #include <faiss/gpu/utils/MatrixMult.cuh>
@@ -60,18 +61,18 @@ void runKn3Distance(GpuResources* res,
     FAISS_ASSERT(outIndices.getSize(0) == numQueries);
 
     // If we're querying against a 0 sized set, just return empty results
-    fprintf(stdout,"filling.\n");
-    // thrust::fill(thrust::cuda::par.on(stream),
-    //              outDistances.data(),
-    //              outDistances.end(),
-    //              Limits<float>::getMax());
-    // thrust::fill(thrust::cuda::par.on(stream),
-    //              outIndices.data(),
-    //              outIndices.end(),-1);
+    thrust::fill(thrust::cuda::par.on(stream),
+                 outDistances.data(),
+                 outDistances.end(),
+                 Limits<float>::getMax());
+    thrust::fill(thrust::cuda::par.on(stream),
+                 outIndices.data(),
+                 outIndices.end(),-1);
 
     // By default, aim to use up to 512 MB of memory for the processing, with
     // both number of queries and number of centroids being at least 512.
-    int numSearch = ws*ws*(wf*wb+1);
+    int numSearch = ws*ws;
+    int timeWindowSize = wf*wb+1;
     int tileQueries,tileSearch;
     chooseKn3TileSize(numQueries,numSearch,sizeof(T),tileQueries,tileSearch);
     tileSearch = numSearch;
@@ -88,10 +89,10 @@ void runKn3Distance(GpuResources* res,
     // Temporary output memory space we'll use
     DeviceTensor<float, 2, true> distanceBuf1(
             res, makeTempAlloc(AllocType::Other, stream),
-            {tileQueries, tileSearch});
+            {tileQueries, tileSearch * timeWindowSize});
     DeviceTensor<float, 2, true> distanceBuf2(
             res, makeTempAlloc(AllocType::Other, stream),
-            {tileQueries, tileSearch});
+            {tileQueries, tileSearch * timeWindowSize});
     DeviceTensor<float, 2, true>* distanceBufs[2] = {
             &distanceBuf1, &distanceBuf2};
 
@@ -158,9 +159,10 @@ void runKn3Distance(GpuResources* res,
             int curSearchSize = std::min(tileSearch, numSearch - j);
             int curSearchTile = j / tileSearch;
 
+            int fullSearchSize = curSearchSize * timeWindowSize;
             auto distanceBufView = distanceBufs[curStream]
                                            ->narrow(0, 0, curQuerySize)
-                                           .narrow(1, 0, curSearchSize);
+                                           .narrow(1, 0, fullSearchSize);
             auto outDistanceBufColView =
                     outDistanceBufRowView.narrow(1, k * curSearchTile, k);
             auto outIndexBufColView =
@@ -174,9 +176,23 @@ void runKn3Distance(GpuResources* res,
             */
             
             if (curSearchSize == numSearch){ // we search all at once
-              runBurstNnfL2Norm(srch_burst,fflow,bflow,
-                                queryView,outDistanceView,outIndexView,
+              
+              thrust::fill(thrust::cuda::par.on(stream),
+                           distanceBufView.data(),
+                           distanceBufView.end(),
+                           Limits<float>::getMax());
+              // thrust::fill(thrust::cuda::par.on(stream),
+              //              outDistanceView.data(),
+              //              outDistanceView.end(),
+              //              Limits<float>::getMax());
+
+              runBurstNnfL2Norm(srch_burst,fflow,bflow,queryView,
+                                distanceBufView,outIndexView,
                                 j,curSearchSize,ps,pt,ws,wf,wb,stream);
+
+              runBurstNnfSimpleBlockSelect(distanceBufView,
+                                           outDistanceView,
+                                           outIndexView,stream);
 
             }else{ // store in temp bufs
 
@@ -277,7 +293,7 @@ void runKn3Distance(GpuResources* res,
         */
 
 
-        curStream = (curStream + 1) % 2;
+        // curStream = (curStream + 1) % 2;
     }
 
     // Have the desired ordering stream wait on the multi-stream
