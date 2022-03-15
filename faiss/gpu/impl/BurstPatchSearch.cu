@@ -22,6 +22,7 @@ namespace faiss {
 namespace gpu {
 
 #define inline_min(a, b) ( (a) < (b) ? (a) : (b) )
+#define inline_max(a, b) ( (a) > (b) ? (a) : (b) )
 // #define macro_max(a, b) (a > b)? a: b 
 #define legal_access(a, b, c, d) ((((a) >= (c)) && (((a)+(b)) < (d))) ? true : false)
 
@@ -111,16 +112,24 @@ __global__ void burstPatchSearchKernel(
               
             // Reference Location [top-left of patch]
             int r_frame = query[queryIndex][0];
-            int r_rowTop = r_query_row;// - ps/2;
-            int r_colLeft = r_query_col;// - ps/2;
+            int r_rowTop = r_query_row - ps/2;
+            int r_colLeft = r_query_col - ps/2;
 
             // Unpack Search Index [offset in search space]
             int spaceIndex = spaceStart + sidx;
             int space_row = spaceIndex / ws - wsHalf;
             int space_col = spaceIndex % ws - wsHalf;
 
+            // Get frame offset
+            // shift_t = min(0,t_c - nWt_b) + max(0,t_c + nWt_f - nframes + ps_t)
+            // t_start = max(t_c - nWt_b - shift_t,0)
+            int shift_t_min = inline_min(0,r_frame - wb);
+            int shift_t_max = inline_max(0,r_frame + wf - nframes + pt);
+            int shift_t = shift_t_min + shift_t_max;
+            int frame_min = inline_max(r_frame - wb - shift_t,0);
+
             // Proposed Location [top-left of search patch]
-            int p_frame = r_frame - wb + frame_index;
+            int p_frame = r_frame + frame_index - frame_min;
             int p_rowTop = r_rowTop + space_row;
             int p_colLeft = r_colLeft + space_col;
               
@@ -145,20 +154,26 @@ __global__ void burstPatchSearchKernel(
             //
     		  
             // Ref Locs
-            int r_row = r_rowTop + hIdx % height;
-            int r_col = r_colLeft + wIdx % width;
+            // r_rowTop = 0;
+            // r_colLeft = 0;
+            int r_row = r_rowTop + hIdx;
+            int r_col = r_colLeft + wIdx;
             r_row = (r_row < height) ? r_row : (2*height - r_row - 1);
-            r_col = (r_row < width) ? r_col : (2*width - r_col - 1);
-            r_row = (r_row >= 0) ? r_row : (-r_row)-1;
-            r_col = (r_col >= 0) ? r_col : (-r_col)-1;
+            r_col = (r_col < width) ? r_col : (2*width - r_col - 1);
+            r_row = (r_row >= 0) ? r_row : (-r_row-1);
+            r_col = (r_col >= 0) ? r_col : (-r_col-1);
+            // r_row = 1;
+            // r_col = 1;
             
             // Proposed Locs
-            int p_row = (p_rowTop + hIdx) % height;
-            int p_col = (p_colLeft + wIdx) % width;
+            int p_row = p_rowTop + hIdx;
+            int p_col = p_colLeft + wIdx;
             p_row = (p_row < height) ?  p_row : (2*height - p_row - 1);
-            p_col = (p_row < width) ? p_col : (2*width - p_col - 1);
-            p_row = (p_row >= 0) ? p_row : (-p_row)-1;
-            p_col = (p_col >= 0) ? p_col : (-p_col)-1;
+            p_col = (p_col < width) ? p_col : (2*width - p_col - 1);
+            p_row = (p_row >= 0) ? p_row : (-p_row-1);
+            p_col = (p_col >= 0) ? p_col : (-p_col-1);
+            // p_row = 0;
+            // p_col = 0;
 
             // Check Legal Access [Proposed Location]
             bool flegal = (p_frame >= 0) && (p_frame < nframes);
