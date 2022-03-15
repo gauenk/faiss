@@ -40,6 +40,7 @@ class TestTopKSearch(unittest.TestCase):
 
         #  -- Read Data (Image & VNLB-C++ Results) --
         clean = testing.load_dataset(dname).to(device)
+        clean = clean * 1.0
         noisy = clean + sigma * th.normal(0,1,size=clean.shape,device=device)
         return clean,noisy
 
@@ -85,23 +86,32 @@ class TestTopKSearch(unittest.TestCase):
     def run_comparison(self,noisy,clean,sigma,flows,args):
 
         # -- fixed testing params --
-        K = 20
+        K = 10
         BSIZE = 50
         NBATCHES = 2
         shape = noisy.shape
         device = noisy.device
+        print("shape: ",shape)
+        print("clean.shape: ",clean.shape)
+        print("noisy.shape: ",noisy.shape)
+
 
         # -- create empty bufs --
         bufs = edict()
         bufs.patches = None
         bufs.dists = None
         bufs.inds = None
+        clean = 255.*th.rand_like(clean).type(th.float32)
+        noisy = 255.*th.rand_like(clean).type(th.float32)
+        print(clean.max())
+        print(noisy.max())
 
         # -- exec over batches --
         for index in range(NBATCHES):
 
             # -- get testing inds --
             srch_inds = self.get_search_inds(index,BSIZE,shape,device)
+            srch_inds = srch_inds.type(th.int32)
 
             # -- get return sizes --
             vpss_vals,vpss_inds = self.init_topk_shells(BSIZE,K,device)
@@ -117,6 +127,7 @@ class TestTopKSearch(unittest.TestCase):
             print(srch_inds.shape,kn3_vals.shape,kn3_inds.shape)
             bufs.dists = kn3_vals
             bufs.inds = kn3_inds
+            print("clean.max().item(): ",clean.max().item())
             kn3.run_search(clean/255.,srch_inds,flows,sigma/255.,args,bufs)
             print(bufs.dists)
             print(bufs.inds)

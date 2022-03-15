@@ -22,6 +22,31 @@
 namespace faiss {
   namespace gpu {
 
+    __global__ void burstNnfBlockFill(
+	    Tensor<float, 2, true> inVals,
+        Tensor<float, 2, true> outVals,
+        Tensor<int, 2, true> outKeys){
+
+      int queryIndex = threadIdx.x + blockDim.x * blockIdx.x;
+      int numQueries = inVals.getSize(0);
+      int numSearch = inVals.getSize(1);
+      int k = outVals.getSize(1);
+      int compStart = 0;//4000;
+      bool legal = queryIndex < numQueries;
+      // printf("queryIndex: %d\n",queryIndex);
+      // printf("numQueries: %d\n",numQueries);
+
+      if ( legal ) {
+
+        int compIndex = compStart;
+        for (int comp = 0; comp < k; ++comp){          
+          outVals[queryIndex][comp] = (float)inVals[queryIndex][compIndex];
+          outKeys[queryIndex][comp] = (int)compIndex;
+          compIndex += 1;
+        }
+      }
+    }
+
     __global__ void burstNnfBlockSelect(
 	    Tensor<float, 2, true> inVals,
         Tensor<float, 2, true> outVals,
@@ -90,6 +115,7 @@ namespace faiss {
 
       // launch kernel
       burstNnfBlockSelect<<<grid, block, 0, stream>>>(inVals, outVals, outKeys);
+      // burstNnfBlockFill<<<grid, block, 0, stream>>>(inVals, outVals, outKeys);
 
       CUDA_TEST_ERROR();
 

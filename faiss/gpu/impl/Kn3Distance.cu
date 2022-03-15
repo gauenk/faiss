@@ -189,7 +189,6 @@ void runKn3Distance(GpuResources* res,
               runBurstNnfL2Norm(srch_burst,fflow,bflow,queryView,
                                 distanceBufView,outIndexView,
                                 j,curSearchSize,ps,pt,ws,wf,wb,stream);
-
               runBurstNnfSimpleBlockSelect(distanceBufView,
                                            outDistanceView,
                                            outIndexView,stream);

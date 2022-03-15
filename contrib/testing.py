@@ -23,7 +23,7 @@ def load_dataset(dname):
         img_fn = data_dir / ("%05d.png" % fid)
         if not img_fn.exists(): break
         img = Image.open(img_fn).convert("RGB")
-        img = np.array(img).transpose(1,2,0)
+        img = np.array(img).transpose(2,0,1)
         burst.append(img)
     burst = np.stack(burst)
     burst = th.from_numpy(burst)

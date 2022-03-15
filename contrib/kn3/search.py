@@ -79,6 +79,11 @@ def get_faiss_args(xb,xb_fill,xq,args,flows,bufs,fxn_name=faiss.Kn3FxnName_KDIST
     fflow_ptr,_ = get_float_ptr(fflow)
     bflow_ptr,_ = get_float_ptr(bflow)
 
+    # -- type checks --
+    assert xb.dtype == tf32
+    assert xq.dtype == ti32
+    assert patches.dtype == tf32
+
     # -- create args --
     args = faiss.GpuKn3DistanceParams()
     args.fxn_name = fxn_name

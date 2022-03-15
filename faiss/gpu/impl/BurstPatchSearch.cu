@@ -33,7 +33,7 @@ __global__ void burstPatchSearchKernel(
 	Tensor<int, 2, true, int> query,
 	Tensor<float, 2, true, int> vals,
 	Tensor<int, 2, true, int> inds,
-    int start, int ps, int pt, int ws, int wf, int wb){
+    int spaceStartInput, int ps, int pt, int ws, int wf, int wb){
     extern __shared__ char smemByte[]; // #warps * BatchQueries * BatchSearch * nelements
     float* smem = (float*)smemByte;
 
@@ -44,15 +44,21 @@ __global__ void burstPatchSearchKernel(
     int warpId = threadId / kWarpSize;
 
     // Warp Id to Frame [assuming patchsize = 7]
-    int numWarpsPerFrame = (ps*ps-1) / (kWarpSize+1) + 1; // "divUp"
-    int frame_index = warpId / numWarpsPerFrame; // proposal frame index
+    int spatialSize = ps*ps;
+    int numWarpsPerFrame = (spatialSize-1) / (kWarpSize+1) + 1; // "divUp"
+    int frame_index = threadId / (numWarpsPerFrame * kWarpSize); // proposal frame index
+    int spatialId = threadId % (numWarpsPerFrame * kWarpSize); // raster of spatial location
 
     // Unpack Shapes [Burst]
     int nframes = burst.getSize(0);
     int nftrs = 1;//burst.getSize(1); // fixed to "1" since hsv searc
-    int height = burst.getSize(1);
-    int width = burst.getSize(1);
+    int height = burst.getSize(2);
+    int width = burst.getSize(3);
     int wsHalf = (ws-1)/2;
+    // if ((laneId == 0) && (blockIdx.x == 0)){
+    //   // printf("frame_index: %d, frame_index - wb: %d\n",frame_index,frame_index-wb);
+    //   printf("nframes: %d, height: %d, width: %d\n",nframes,height,width);
+    // }
 
     // Unpack Shapes [Vals]
     int k = vals.getSize(1);
@@ -64,9 +70,9 @@ __global__ void burstPatchSearchKernel(
     // Blocks to Indices
     int numPerThread = ps*ps;
     int queryIndexStart = BatchQueries*(blockIdx.x); // batch size is 1 
-    int spaceStart = BatchSpace*(blockIdx.y)+start; // batch size is 1
-    // int timeStart = -wb;
+    int spaceStart = BatchSpace*(blockIdx.y)+spaceStartInput; // batch size is 1
     int timeWindowSize = wf + wb + 1;
+    float Z = ps * ps;
 
     // accumulation location for norm
     float pixNorm[BatchQueries][BatchSpace];
@@ -105,8 +111,8 @@ __global__ void burstPatchSearchKernel(
               
             // Reference Location [top-left of patch]
             int r_frame = query[queryIndex][0];
-            int r_rowStart = r_query_row - ps/2;
-            int r_colStart = r_query_col - ps/2;
+            int r_rowTop = r_query_row - ps/2;
+            int r_colLeft = r_query_col - ps/2;
 
             // Unpack Search Index [offset in search space]
             int spaceIndex = spaceStart + sidx;
@@ -115,16 +121,16 @@ __global__ void burstPatchSearchKernel(
 
             // Proposed Location [top-left of search patch]
             int p_frame = r_frame - wb + frame_index;
-            int p_rowStart = r_rowStart + space_row;
-            int p_colStart = r_colStart + space_col;
+            int p_rowTop = r_rowTop + space_row;
+            int p_colLeft = r_colLeft + space_col;
               
             //
-            // Thread Index -> (t,h,w) location of patch delta
+            // Spatial Index -> (c,h,w) location of patch delta
             //
 
             // features 
-            int ftr = threadIdx.x % nftrs;
-            int fDiv = threadIdx.x / nftrs;
+            int ftr = spatialId % nftrs;
+            int fDiv = spatialId / nftrs;
     		  
             // width
             int wIdx = fDiv % ps;
@@ -139,18 +145,30 @@ __global__ void burstPatchSearchKernel(
             //
     		  
             // Ref Locs
-            int r_row = (r_rowStart + hIdx) % height;
-            int r_col = (r_colStart + wIdx) % width;
-
+            int r_row = (r_rowTop + hIdx) % height;
+            int r_col = (r_colLeft + wIdx) % width;
+            r_row = (r_row >= 0) ? r_row : (-r_row);
+            r_col = (r_col >= 0) ? r_col : (-r_col);
+            
             // Proposed Locs
-            int p_row = (p_rowStart + hIdx) % height;
-            int p_col = (p_colStart + wIdx) % width;
+            int p_row = (p_rowTop + hIdx) % height;
+            int p_col = (p_colLeft + wIdx) % width;
+            p_row = (p_row >= 0) ? p_row : (-p_row);
+            p_col = (p_col >= 0) ? p_col : (-p_col);
+
+            // Check Legal Access [Proposed Location]
+            bool flegal = (p_frame >= 0) && (p_frame < nframes);
+            bool rlegal = (spatialId >= 0) && (spatialId < spatialSize);
+            bool legal = flegal && rlegal;
     		  
             // image values
             T ref_val = burst[r_frame][ftr][r_row][r_col];
-            T tgt_val = burst[p_frame][ftr][p_row][p_col];
+            T tgt_val = flegal ? burst[p_frame][ftr][p_row][p_col] : (T)0;
             T diff = Math<T>::sub(ref_val,tgt_val);
-            pixNorm[qidx][sidx] = Math<T>::mul(diff,diff);
+            diff = Math<T>::mul(diff,diff);
+            diff = flegal ? diff : (T)1e5;
+            diff = rlegal ? diff : (T)0.;
+            pixNorm[qidx][sidx] = diff;
           }
         }
       }
@@ -170,10 +188,6 @@ __global__ void burstPatchSearchKernel(
           for (int qidx = 0; qidx < BatchQueries; ++qidx) {
 #pragma unroll
             for (int sidx = 0; sidx < BatchSpace; ++sidx) {
-              // int smemFrameIndex = frame_index;
-              // int smemQueryIndex = qidx * timeWindowSize;
-              // int smemSpaceIndex = sidx * BatchQueries * smemFrameIndex;
-              // int smemBatchIdx = smemFrameIndex + smemQueryIndex + smemSpaceIndex;
               int smemQueryIndex = qidx;
               int smemSpaceIndex = sidx * BatchQueries;
               int smemBatchIdx = smemQueryIndex + smemSpaceIndex;
@@ -195,28 +209,23 @@ __global__ void burstPatchSearchKernel(
         for (int qidx = 0; qidx < BatchQueries; ++qidx) {
 #pragma unroll
           for (int sidx = 0; sidx < BatchSpace; ++sidx) {
-            // int smemFrameIndex = frame_index;
-            // int smemQueryIndex = qidx * timeWindowSize;
-            // int smemSpaceIndex = sidx * BatchQueries * smemFrameIndex;
-            // int smemBatchIdx = smemFrameIndex + smemQueryIndex + smemSpaceIndex;
             int smemQueryIndex = qidx;
             int smemSpaceIndex = sidx * BatchQueries;
             int smemBatchIdx = smemQueryIndex + smemSpaceIndex;
             int smemIdx = smemBatchIdx * numWarps + numWarpsPerFrame * frame_index + widx;
-            // smem[smemIdx] = pixNorm[qidx][sidx];
             float val = 0;
-            if (frame_index < timeWindowSize){
-              val = smem[smemIdx];
-            }else{
-              val = 1000000; // something big.
-            }
 
+            bool flegal = (frame_index < timeWindowSize);
             int outRow = queryIndexStart + qidx;
             int outCol = (spaceStart + sidx) * timeWindowSize + frame_index;
-            if (widx  == 0){
-              vals[outRow][outCol] = val;
-            }else{
-              vals[outRow][outCol] += val;
+            if (flegal){
+              val = smem[smemIdx];
+              if (widx  == 0){
+                vals[outRow][outCol] = val;
+              }else{
+                vals[outRow][outCol] += val;
+                vals[outRow][outCol] /= Z;
+              }
             }
           }
         }
@@ -236,7 +245,7 @@ void runBurstNnfL2Norm(Tensor<T, 4, true>& burst,
                        cudaStream_t stream){
 
   int maxThreads = (int)getMaxThreadsCurrentDevice();
-  constexpr int batchQueries = 2;
+  constexpr int batchQueries = 1;
   constexpr int batchSpace = 1;
   bool normLoop = false;
 
