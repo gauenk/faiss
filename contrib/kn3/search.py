@@ -1,5 +1,8 @@
 
 
+# -- misc --
+from easydict import EasyDict as edict
+
 # -- faiss --
 import faiss
 from faiss.contrib.torch_utils import using_stream
@@ -62,6 +65,9 @@ def get_faiss_args(xb,xb_fill,queryStart,numQueries,args,flows,bufs,
     # -- alloc/format bufs --
     D = get_buf(D,nq,k,device,tf32)
     I = get_buf(I,nq,k,device,ti32)
+    if bufs is None:
+        bufs = edict()
+        bufs.dists,bufs.inds = None,None
     if bufs.dists is None:
         bufs.dists = D
     if bufs.inds is None:
@@ -116,7 +122,7 @@ def get_faiss_args(xb,xb_fill,queryStart,numQueries,args,flows,bufs,
 
     return args
 
-def run_search(srch_img,queryStart,numQueries,flows,sigma,srch_args,bufs):
+def run_search(srch_img,queryStart,numQueries,flows,sigma,srch_args,bufs,clock=None):
     """
 
     Execute the burst nearest neighbors search
@@ -133,12 +139,11 @@ def run_search(srch_img,queryStart,numQueries,flows,sigma,srch_args,bufs):
     pytorch_stream = th.cuda.current_stream()
     cuda_stream_s = faiss.cast_integer_to_cudastream_t(pytorch_stream.cuda_stream)
     res.setDefaultStream(th.cuda.current_device(), cuda_stream_s)
+    th.cuda.synchronize()
 
     # -- exec --
-    clock = Timer()
-    print("HI")
-    clock.tic()
+    if not(clock is None): clock.tic()
     faiss.bfKn3(res, args)
-    clock.toc()
-    print("by")
-    print(clock)
+    if not(clock is None):
+        th.cuda.synchronize()
+        clock.toc()

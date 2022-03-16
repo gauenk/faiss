@@ -74,9 +74,7 @@ def get_flow(flow,shape,device,flow_alloced=None):
         return flow_alloced
     elif flow is None:
         flow = th.zeros(shape,dtype=tf32,device=device)
-    else:
-        return flow
-
+    return flow
 
 # ------------------------------
 #

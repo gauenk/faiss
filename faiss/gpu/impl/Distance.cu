@@ -163,6 +163,9 @@ void runDistance(
 
         return;
     }
+    // fprintf(stdout,"numQueries: %d\n",numQueries);
+    // fprintf(stdout,"numCentroids: %d\n",numCentroids);
+    // fprintf(stdout,"k: %d\n",k);
 
     // L2: If ||c||^2 is not pre-computed, calculate it
     DeviceTensor<float, 1, true> cNorms;
@@ -198,6 +201,8 @@ void runDistance(
             tileCols);
 
     int numColTiles = utils::divUp(numCentroids, tileCols);
+    // fprintf(stdout,"tileRows: %d\n",tileRows);
+    // fprintf(stdout,"tileCols: %d\n",tileCols);
 
     // We can have any number of vectors to query against, even less than k, in
     // which case we'll return -1 for the index

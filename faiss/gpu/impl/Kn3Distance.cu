@@ -75,8 +75,9 @@ void runKn3Distance(GpuResources* res,cudaStream_t stream,
     int timeWindowSize = wf*wb+1;
     int tileQueries,tileSearch;
     chooseKn3TileSize(numQueries,numSearch,sizeof(T),tileQueries,tileSearch);
-    tileQueries = 512;
+    tileQueries = 4096;
     tileSearch = numSearch;
+    // theirs was 512 x 40960
     int numQueryTiles = utils::divUp(numQueries, tileQueries);
     int numSearchTiles = utils::divUp(numSearch, tileSearch);
     // fprintf(stdout,"numQueries,numSearch: %d,%d\n",numQueries,numSearch);
@@ -191,10 +192,10 @@ void runKn3Distance(GpuResources* res,cudaStream_t stream,
             
             if (curSearchSize == numSearch){ // we search all at once
               
-              // thrust::fill(thrust::cuda::par.on(stream),
-              //              distanceBufView.data(),
-              //              distanceBufView.end(),
-              //              Limits<float>::getMax());
+              thrust::fill(thrust::cuda::par.on(stream),
+                           distanceBufView.data(),
+                           distanceBufView.end(),
+                           Limits<float>::getMax());
               // thrust::fill(thrust::cuda::par.on(stream),
               //              outDistanceView.data(),
               //              outDistanceView.end(),

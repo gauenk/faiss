@@ -22,6 +22,7 @@
 namespace faiss {
   namespace gpu {
 
+    template <int BatchQueries>
     __global__ void burstNnfBlockFill(
 	    Tensor<float, 2, true> inVals,
         Tensor<float, 2, true> outVals,
@@ -47,49 +48,55 @@ namespace faiss {
       }
     }
 
+    template <int BatchQueries>
     __global__ void burstNnfBlockSelect(
 	    Tensor<float, 2, true> inVals,
         Tensor<float, 2, true> outVals,
         Tensor<int, 2, true> outKeys){
 
-      int queryIndex = threadIdx.x + blockDim.x * blockIdx.x;
+      int queryIndexStart = BatchQueries*(threadIdx.x + blockDim.x * blockIdx.x);
       int numQueries = inVals.getSize(0);
       int numSearch = inVals.getSize(1);
       int k = outVals.getSize(1);
       int kidx = 0;
-      bool legal = queryIndex < numQueries;
-      // printf("queryIndex: %d\n",queryIndex);
-      // printf("numQueries: %d\n",numQueries);
 
-      if ( legal ) {
+      for (int qidx = 0; qidx < BatchQueries; ++qidx){
+        int queryIndex = queryIndexStart + qidx;
+        bool legal = queryIndex < numQueries;
+        // printf("queryIndex: %d\n",queryIndex);
+        // printf("numQueries: %d\n",numQueries);
 
-        float outVal_max = outVals[queryIndex][k-1];
-        float outVal_curr = outVal_max;
-        for (int comp = 0; comp < numSearch; ++comp){
+        if ( legal ) {
 
-          float inVal = inVals[queryIndex][comp];
+          float outVal_max = outVals[queryIndex][k-1];
+          float outVal_curr = outVal_max;
+          for (int comp = 0; comp < numSearch; ++comp){
 
-          if (inVal < outVal_max){
-            kidx = k-1;
-            outVal_curr = outVal_max;
-            while( inVal < outVal_curr && kidx > 0){
-              kidx -= 1;
-              outVal_curr = outVals[queryIndex][kidx];
+            float inVal = inVals[queryIndex][comp];
+
+            if (inVal < outVal_max){
+              kidx = k-1;
+              outVal_curr = outVal_max;
+              while( inVal < outVal_curr && kidx > 0){
+                kidx -= 1;
+                outVal_curr = outVals[queryIndex][kidx];
+              }
+              if (kidx != 0){ kidx += 1; }
+              else if (inVal > outVal_curr){ kidx += 1; }
+
+              // shift values up
+              for (int sidx = k-1; sidx > kidx; --sidx){
+                outVals[queryIndex][sidx] = (float)outVals[queryIndex][sidx-1];
+                outKeys[queryIndex][sidx] = (int)outKeys[queryIndex][sidx-1];
+              }
+
+              // assign new values
+              outVals[queryIndex][kidx] = inVal;
+              outKeys[queryIndex][kidx] = comp;
+              outVal_max = outVals[queryIndex][k-1];
+
             }
-            if (kidx != 0){ kidx += 1; }
-            else if (inVal > outVal_curr){ kidx += 1; }
-
-            // shift values up
-            for (int sidx = k-1; sidx > kidx; --sidx){
-              outVals[queryIndex][sidx] = (float)outVals[queryIndex][sidx-1];
-              outKeys[queryIndex][sidx] = (int)outKeys[queryIndex][sidx-1];
-            }
-
-            // assign new values
-            outVals[queryIndex][kidx] = inVal;
-            outKeys[queryIndex][kidx] = comp;
-            outVal_max = outVals[queryIndex][k-1];
-
+          
           }
         }
       }
@@ -105,20 +112,24 @@ namespace faiss {
 
       // batching
       constexpr int batchQueries = 8;
-      constexpr int batchSpace = 1;
 
-      // setup kernel launch
+      // unpack sizes
       int maxThreads = (int) getMaxThreadsCurrentDevice();
       int numQueries = inVals.getSize(0);
       int numSearch = inVals.getSize(1);
       int k = outVals.getSize(1);
       
-      int numQueriesSqrt = (int)(utils::pow(numQueries*1.0, .5)+1);
+      // create num of block x threads
+      int numQueryExecs = (numQueries-1) / batchQueries + 1;
+      int numQueriesSqrt = (int)(utils::pow(numQueryExecs*1.0, .5)+1);
+
+      // setup kernel params
       auto grid = dim3(numQueriesSqrt);
       auto block = dim3(numQueriesSqrt);
 
       // launch kernel
-      burstNnfBlockSelect<<<grid, block, 0, stream>>>(inVals, outVals, outKeys);
+      burstNnfBlockSelect<batchQueries>\
+        <<<grid, block, 0, stream>>>(inVals, outVals, outKeys);
       // burstNnfBlockFill<<<grid, block, 0, stream>>>(inVals, outVals, outKeys);
 
       CUDA_TEST_ERROR();

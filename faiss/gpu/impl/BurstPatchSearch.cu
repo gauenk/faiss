@@ -172,17 +172,10 @@ __global__ void burstPatchSearchKernel(
             // Spatial Index -> (c,h,w) location of patch delta
             //
 
-            // features 
-            int ftr = spatialId % nftrs;
-            int fDiv = spatialId / nftrs;
-    		  
-            // width
-            int wIdx = fDiv % ps;
-            int wDiv = fDiv / ps;
-    		  
-            // height
-            int hIdx = wDiv % ps;
-            int hDiv = wDiv / ps;
+            int ftr = 0;
+            int wIdx = spatialId % ps;
+            int hIdx = spatialId / ps;
+            bool rlegal = (spatialId >= 0) && (spatialId < spatialSize);
 
             //
             // Location [top-left] + Offsets [threadIdx] = Patch Index
@@ -212,8 +205,6 @@ __global__ void burstPatchSearchKernel(
 
             // Check Legal Access [Proposed Location]
             bool flegal = (p_frame >= 0) && (p_frame < nframes);
-            bool rlegal = (spatialId >= 0) && (spatialId < spatialSize);
-            bool legal = flegal && rlegal;
     		  
             // image values
             T ref_val = burst[r_frame][ftr][r_row][r_col];
@@ -273,6 +264,7 @@ __global__ void burstPatchSearchKernel(
             bool flegal = (frame_index < timeWindowSize);
             int outRow = queryIndexStart + qidx;
             int outCol = (spaceStart + sidx) * timeWindowSize + frame_index;
+            // vals[outRow][outCol] = 0; // todo remove me.
             if (flegal){
               val = smem[smemIdx];
               if (widx  == 0){
@@ -282,6 +274,8 @@ __global__ void burstPatchSearchKernel(
                 vals[outRow][outCol] /= Z;
               }
             }
+
+            
           }
         }
       }
@@ -300,7 +294,7 @@ void runBurstNnfL2Norm(Tensor<T, 4, true>& burst,
                        cudaStream_t stream){
 
   int maxThreads = (int)getMaxThreadsCurrentDevice();
-  constexpr int batchQueries = 8;
+  constexpr int batchQueries = 4;
   constexpr int batchSpace = 1;
   bool normLoop = false;
 
