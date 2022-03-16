@@ -26,7 +26,10 @@ def get_patches(patches,pshape,device,dtype):
     if patches is None:
         patches = th.empty(pshape, device=device, dtype=dtype)
     else:
-        assert patches.shape == pshape
+        shape,ndims = patches.shape,len(pshape)
+        assert len(shape) == len(pshape)
+        dshape = sum([abs(shape[i] - pshape[i]) for i in range(ndims)])
+        assert dshape == 0
         # interface takes void*, we need to check this
         assert (patches.dtype == dtype)
     return patches

@@ -10,7 +10,7 @@
 #include <faiss/impl/AuxIndexStructures.h>
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/gpu/impl/BroadcastSum.cuh>
-#include <faiss/gpu/impl/Kn3Distance.cuh>
+#include <faiss/gpu/impl/Kn3TopPatches.cuh>
 #include <faiss/gpu/impl/BurstPatchSearch.cuh>
 #include <faiss/gpu/impl/DistanceUtils.cuh>
 #include <faiss/gpu/impl/L2Norm.cuh>
@@ -32,7 +32,7 @@ namespace faiss {
 namespace gpu {
 
 template <typename T>
-void runKn3Distance(GpuResources* res,cudaStream_t stream,
+void runKn3TopPatches(GpuResources* res,cudaStream_t stream,
                     int ps, int pt, int wf, int wb, int ws,
                     int queryStart, int queryStride,
                     Tensor<T, 4, true>& srch_burst,
@@ -52,6 +52,7 @@ void runKn3Distance(GpuResources* res,cudaStream_t stream,
     // auto qdim = queries.getSize(1);
 
     // The "k" of the knn
+
     auto k = outDistances.getSize(1);
     auto numQueries = outDistances.getSize(0);
 
@@ -74,7 +75,7 @@ void runKn3Distance(GpuResources* res,cudaStream_t stream,
     int numSearch = ws*ws;
     int timeWindowSize = wf*wb+1;
     int tileQueries,tileSearch;
-    chooseKn3TileSize(numQueries,numSearch,sizeof(T),tileQueries,tileSearch);
+    // chooseKn3TileSize(numQueries,numSearch,sizeof(T),tileQueries,tileSearch);
     tileQueries = 4096;
     tileSearch = numSearch;
     // theirs was 512 x 40960
@@ -223,31 +224,15 @@ void runKn3Distance(GpuResources* res,cudaStream_t stream,
     if (interrupt) {
         FAISS_THROW_MSG("interrupted");
     }
-
 }
 
-template <typename T>
-void runL2Distance(
-        GpuResources* res, cudaStream_t stream,
-        int ps, int pt, int wf, int wb, int ws,
-        int queryStart, int queryStride,
-        Tensor<T, 4, true>& srch_burst,
-        Tensor<T, 4, true>& fflow,
-        Tensor<T, 4, true>& bflow,
-        Tensor<float, 2, true>& outDistances,
-        Tensor<int, 2, true>& outIndices) {
-    runKn3Distance<T>(res,stream,
-                      ps,pt,wf,wb,ws,
-                      queryStart,queryStride,
-                      srch_burst,fflow,bflow,
-                      outDistances,outIndices);
-}
+
 
 //
 // Instantiations of the distance templates
 //
 
-void runL2Distance(
+void runKn3TopPatches(
         GpuResources* res, cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
         int queryStart, int queryStride,
@@ -256,14 +241,14 @@ void runL2Distance(
         Tensor<float, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
         Tensor<int, 2, true>& outIndices){
-    runL2Distance<float>(res,stream,
+    runKn3TopPatches<float>(res,stream,
                          ps,pt,wf,wb,ws,
                          queryStart,queryStride,
                          srch_burst,fflow,bflow,
                          outDistances,outIndices);
 }
 
-void runL2Distance(
+void runKn3TopPatches(
         GpuResources* res, cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
         int queryStart, int queryStride,
@@ -272,12 +257,13 @@ void runL2Distance(
         Tensor<half, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
         Tensor<int, 2, true>& outIndices) {
-    runL2Distance<half>(
+    runKn3TopPatches<half>(
             res,stream,
             ps,pt,wf,wb,ws,
             queryStart,queryStride,
             srch_burst,fflow,bflow,
             outDistances,outIndices);
 }
+
 } // namespace gpu
 } // namespace faiss

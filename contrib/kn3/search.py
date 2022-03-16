@@ -47,15 +47,16 @@ def get_faiss_args(xb,xb_fill,queryStart,numQueries,args,flows,bufs,
     # -- check sizes --
     t,c,h,w = xb.size()
 
+    # -- shape checking --
+    if k == -1: k = D.shape[1]
+    elif D is None: assert k != -1
+
     # -- alloc/format patch --
     kdist_b = fxn_name == faiss.Kn3FxnName_KDIST
     if kdist_b: pshape = (1,1,1,1,1,1) # no space needed
     else: pshape = (nq,k,pt,c,ps,ps)
     patches = get_patches(patches,pshape,device,tf32)
 
-    # -- shape checking --
-    if k == -1: k = D.shape[1]
-    elif D is None: assert k != -1
 
     # -- alloc/format flows --
     fshape = (t,2,h,w)
@@ -122,18 +123,22 @@ def get_faiss_args(xb,xb_fill,queryStart,numQueries,args,flows,bufs,
 
     return args
 
-def run_search(srch_img,queryStart,numQueries,flows,sigma,srch_args,bufs,clock=None):
+def run_search(srch_img,queryStart,numQueries,flows,sigma,srch_args,
+               bufs,clock=None,pfill=False):
     """
 
     Execute the burst nearest neighbors search
 
     """
 
+    # -- select [search only] or [search + fill] --
+    if pfill: fxn_name = faiss.Kn3FxnName_KPATCHES
+    else: fxn_name = faiss.Kn3FxnName_KDIST
 
     # -- faiss args --
     device = srch_img.device
     args = get_faiss_args(srch_img,None,queryStart,numQueries,
-                          srch_args,flows,bufs,fxn_name=faiss.Kn3FxnName_KDIST)
+                          srch_args,flows,bufs,fxn_name=fxn_name)
     # -- setup stream --
     res = faiss.StandardGpuResources()
     pytorch_stream = th.cuda.current_stream()
@@ -147,3 +152,4 @@ def run_search(srch_img,queryStart,numQueries,flows,sigma,srch_args,bufs,clock=N
     if not(clock is None):
         th.cuda.synchronize()
         clock.toc()
+    return bufs

@@ -79,6 +79,7 @@ void bfKn3FillOnDevice(
         int ps, int pt, int wf, int wb, int ws,
         int queryStart, int queryStride,
         Tensor<T, 4, true>& srch_burst,
+        Tensor<T, 6, true>& patches,
         Tensor<T, 4, true>& fflow,
         Tensor<T, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
@@ -87,8 +88,7 @@ void bfKn3FillOnDevice(
     // L2 and IP are specialized to use GEMM and an optimized L2 + selection or
     // pure k-selection kernel.
     fprintf(stdout,"This code needs the _fill_ component added.\n");
-    runL2Distance(resources,
-                  stream,
+    runL2Distance(resources,stream,
                   ps,pt,wf,wb,ws,
                   queryStart,queryStride,
                   srch_burst,

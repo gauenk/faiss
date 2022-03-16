@@ -59,7 +59,7 @@ def exec_pm_faiss_burst_eccv2022(clock,burst,ps=7,subsize=100):
     args.queryStride = 3
     args.ws = 2
     BSIZE = (npix-1)//args.queryStride + 1
-    kn3.run_search(burst/255.,0,BSIZE,flows,sigma/255.,args,bufs)
+    kn3.run_search(burst/255.,0,BSIZE,flows,sigma/255.,args,bufs,pfill=True)
     th.cuda.synchronize()
     clock.toc()
 
@@ -99,7 +99,7 @@ def exec_pm_faiss_burst(clock,burst,ps=7,subsize=100):
     args.wb = 6
     args.ws = 10
     BSIZE = (npix-1)//args.queryStride + 1
-    kn3.run_search(burst/255.,0,BSIZE,flows,sigma/255.,args,bufs)
+    kn3.run_search(burst/255.,0,BSIZE,flows,sigma/255.,args,bufs,pfill=True)
     th.cuda.synchronize()
     clock.toc()
 
@@ -158,13 +158,13 @@ def main():
     print("PID: ",pid)
     verbose = True
     cache_dir = ".cache_io"
-    cache_name = "topk_search"
+    cache_name = "topk_patches"
     cache = cache_io.ExpCache(cache_dir,cache_name)
     cache.clear()
 
     # -- (2) create experiments --
-    exps = {"t":[5],"hw":[64,128,256],"ps":[7],"subsize":[50],
-            "method":["burst_eccv2022","burst","numba"],"nreps":[2]} # "numba",
+    exps = {"t":[5],"hw":[64],"ps":[7],"subsize":[50],
+            "method":["burst"],"nreps":[2]} # "numba",
     experiments = cache_io.mesh_pydicts(exps) # create mesh
 
     # -- (3) [Execute or Load] each Experiment --

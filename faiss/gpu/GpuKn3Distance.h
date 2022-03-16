@@ -23,7 +23,7 @@ class GpuResourcesProvider;
 
 enum class Kn3FxnName {
     KDIST = 1,
-    KFILL = 2,
+    KPATCHES = 2,
     FILLOUT = 3,
     FILLIN = 4,
     PFILLTEST = 5,
