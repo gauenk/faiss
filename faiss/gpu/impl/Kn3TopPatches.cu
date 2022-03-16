@@ -12,6 +12,7 @@
 #include <faiss/gpu/impl/BroadcastSum.cuh>
 #include <faiss/gpu/impl/Kn3TopPatches.cuh>
 #include <faiss/gpu/impl/BurstPatchSearch.cuh>
+#include <faiss/gpu/impl/BurstPatchFill.cuh>
 #include <faiss/gpu/impl/DistanceUtils.cuh>
 #include <faiss/gpu/impl/L2Norm.cuh>
 #include <faiss/gpu/impl/L2Select.cuh>
@@ -36,6 +37,7 @@ void runKn3TopPatches(GpuResources* res,cudaStream_t stream,
                     int ps, int pt, int wf, int wb, int ws,
                     int queryStart, int queryStride,
                     Tensor<T, 4, true>& srch_burst,
+                    Tensor<T, 6, true>& patches,
                     Tensor<T, 4, true>& fflow,
                     Tensor<T, 4, true>& bflow,
                     Tensor<float, 2, true>& outDistances,
@@ -153,6 +155,7 @@ void runKn3TopPatches(GpuResources* res,cudaStream_t stream,
         auto queryStart_i = queryStart + i;
         auto outDistanceView = outDistances.narrow(0, i, curQuerySize);
         auto outIndexView = outIndices.narrow(0, i, curQuerySize);
+        auto patchesView = patches.narrow(0, i, curQuerySize);
         // auto outDistanceBufRowView =
         //         outDistanceBufs[curStream]->narrow(0, 0, curQuerySize);
         // auto outIndexBufRowView =
@@ -197,18 +200,19 @@ void runKn3TopPatches(GpuResources* res,cudaStream_t stream,
                            distanceBufView.data(),
                            distanceBufView.end(),
                            Limits<float>::getMax());
-              // thrust::fill(thrust::cuda::par.on(stream),
-              //              outDistanceView.data(),
-              //              outDistanceView.end(),
-              //              Limits<float>::getMax());
 
               runBurstNnfL2Norm(srch_burst,fflow,bflow,
                                 queryStart_i,queryStride,
                                 distanceBufView,outIndexView,
                                 j,curSearchSize,ps,pt,ws,wf,wb,stream);
+
               runBurstNnfSimpleBlockSelect(distanceBufView,
                                            outDistanceView,
                                            outIndexView,stream);
+
+              fillBurstPatches(srch_burst,patchesView,outIndexView,
+                               queryStart_i,queryStride,ws,wb,wf,
+                               stream);
 
             }else{ // store in temp bufs
 
@@ -237,6 +241,7 @@ void runKn3TopPatches(
         int ps, int pt, int wf, int wb, int ws,
         int queryStart, int queryStride,
         Tensor<float, 4, true>& srch_burst,
+        Tensor<float, 6, true>& patches,
         Tensor<float, 4, true>& fflow,
         Tensor<float, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
@@ -244,7 +249,7 @@ void runKn3TopPatches(
     runKn3TopPatches<float>(res,stream,
                          ps,pt,wf,wb,ws,
                          queryStart,queryStride,
-                         srch_burst,fflow,bflow,
+                         srch_burst,patches,fflow,bflow,
                          outDistances,outIndices);
 }
 
@@ -253,6 +258,7 @@ void runKn3TopPatches(
         int ps, int pt, int wf, int wb, int ws,
         int queryStart, int queryStride,
         Tensor<half, 4, true>& srch_burst,
+        Tensor<half, 6, true>& patches,
         Tensor<half, 4, true>& fflow,
         Tensor<half, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
@@ -261,7 +267,7 @@ void runKn3TopPatches(
             res,stream,
             ps,pt,wf,wb,ws,
             queryStart,queryStride,
-            srch_burst,fflow,bflow,
+            srch_burst,patches,fflow,bflow,
             outDistances,outIndices);
 }
 

@@ -74,6 +74,7 @@ __global__ void burstPatchSearchKernel(
     int queryIndexStart = BatchQueries*(blockIdx.x); // batch size is 1 
     int spaceStart = BatchSpace*(blockIdx.y); // batch size is 1
     int timeWindowSize = wf + wb + 1;
+    int psHalf = ps/2;
     float Z = ps * ps;
     constexpr int wSizeMax = 13;
 
@@ -175,7 +176,7 @@ __global__ void burstPatchSearchKernel(
             int ftr = 0;
             int wIdx = spatialId % ps;
             int hIdx = spatialId / ps;
-            bool rlegal = (spatialId >= 0) && (spatialId < spatialSize);
+            bool slegal = (spatialId >= 0) && (spatialId < spatialSize);
 
             //
             // Location [top-left] + Offsets [threadIdx] = Patch Index
@@ -186,6 +187,8 @@ __global__ void burstPatchSearchKernel(
             // r_colLeft = 0;
             int r_row = r_rowTop + hIdx;
             int r_col = r_colLeft + wIdx;
+            bool r_legal = (r_rowTop >= 0) && ((r_rowTop+ps-1) < height);
+            r_legal = r_legal && (r_colLeft >= 0) && ((r_colLeft+ps-1) < width);
             r_row = (r_row < height) ? r_row : (2*height - r_row - 1);
             r_col = (r_col < width) ? r_col : (2*width - r_col - 1);
             r_row = (r_row >= 0) ? r_row : (-r_row-1);
@@ -196,6 +199,10 @@ __global__ void burstPatchSearchKernel(
             // Proposed Locs
             int p_row = p_rowTop + hIdx;
             int p_col = p_colLeft + wIdx;
+            int p_rowCenter = p_rowTop+psHalf;
+            int p_colCenter = p_colLeft+psHalf;
+            bool p_legal = (p_rowCenter >= 0) && (p_rowCenter < height);
+            p_legal = p_legal && (p_colCenter >= 0) && (p_colCenter < width);
             p_row = (p_row < height) ?  p_row : (2*height - p_row - 1);
             p_col = (p_col < width) ? p_col : (2*width - p_col - 1);
             p_row = (p_row >= 0) ? p_row : (-p_row-1);
@@ -204,15 +211,16 @@ __global__ void burstPatchSearchKernel(
             // p_col = 0;
 
             // Check Legal Access [Proposed Location]
-            bool flegal = (p_frame >= 0) && (p_frame < nframes);
+            bool f_legal = (p_frame >= 0) && (p_frame < nframes);
+            f_legal = f_legal && p_legal;// && r_legal ;
     		  
             // image values
             T ref_val = burst[r_frame][ftr][r_row][r_col];
-            T tgt_val = flegal ? burst[p_frame][ftr][p_row][p_col] : (T)0;
+            T tgt_val = f_legal ? burst[p_frame][ftr][p_row][p_col] : (T)0;
             T diff = Math<T>::sub(ref_val,tgt_val);
             diff = Math<T>::mul(diff,diff);
-            diff = flegal ? diff : (T)1e5;
-            diff = rlegal ? diff : (T)0.;
+            diff = f_legal ? diff : (T)1e5;
+            diff = slegal ? diff : (T)0.;
             pixNorm[qidx][sidx] = diff;
             // pixNorm[qidx][sidx] = p_row * height + p_col + 1e5*frame_index;
           }

@@ -7,9 +7,9 @@
 
 #pragma once
 
-#include <faiss/gpu/impl/GeneralDistance.cuh>
-#include <faiss/gpu/utils/DeviceTensor.cuh>
-#include <faiss/gpu/utils/Float16.cuh>
+// #include <faiss/gpu/impl/GeneralDistance.cuh>
+// #include <faiss/gpu/utils/DeviceTensor.cuh>
+// #include <faiss/gpu/utils/Float16.cuh>
 
 namespace faiss {
 namespace gpu {
@@ -24,6 +24,7 @@ void runKn3TopPatches(
         int ps, int pt, int wf, int wb, int ws,
         int queryStart, int queryStride,
         Tensor<float, 4, true>& srch_burst,
+        Tensor<float, 6, true>& patches,
         Tensor<float, 4, true>& fflow,
         Tensor<float, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
@@ -35,6 +36,7 @@ void runKn3TopPatches(
         int ps, int pt, int wf, int wb, int ws,
         int queryStart, int queryStride,
         Tensor<half, 4, true>& srch_burst,
+        Tensor<half, 6, true>& patches,
         Tensor<half, 4, true>& fflow,
         Tensor<half, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
@@ -57,15 +59,15 @@ void bfKn3TopPatches(
     DeviceScope ds(device);
     // L2 and IP are specialized to use GEMM and an optimized L2 + selection or
     // pure k-selection kernel.
-    fprintf(stdout,"This code needs the _fill_ component added.\n");
-    // runKn3TopPatches(resources,
-    //                  stream,
-    //                  ps,pt,wf,wb,ws,
-    //                  queryStart,queryStride,
-    //                  srch_burst,
-    //                  fflow,bflow,
-    //                  outDistances,
-    //                  outIndices);
+    runKn3TopPatches(resources,
+                     stream,
+                     ps,pt,wf,wb,ws,
+                     queryStart,queryStride,
+                     srch_burst,
+                     patches,
+                     fflow,bflow,
+                     outDistances,
+                     outIndices);
 }
 
 }

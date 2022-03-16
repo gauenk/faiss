@@ -10,7 +10,7 @@
 #include <faiss/gpu/utils/DeviceUtils.h>
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/gpu/impl/Kn3Distance.cuh>
-// #include <faiss/gpu/impl/Kn3TopPatches.cuh>
+#include <faiss/gpu/impl/Kn3TopPatches.cuh> // silly header mgnmnt; this must be #2 "cuh".
 #include <faiss/gpu/utils/ConversionOperators.cuh>
 #include <faiss/gpu/utils/CopyUtils.cuh>
 #include <faiss/gpu/utils/DeviceTensor.cuh>
@@ -105,11 +105,11 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
                      {args.numQueries,args.k,args.pt,args.nchnls,args.ps,args.ps});
 
       // Compute Nearest Neighbors AND Fill
-      // bfKn3TopPatches<T>(res,device,stream,
-      //                    args.ps,args.pt,args.wf,args.wb,args.ws,
-      //                    args.queryStart,args.queryStride,
-      //                    srch_burst,patches,fflow,bflow,
-      //                    tOutDistances,tOutIntIndices);
+      bfKn3TopPatches<T>(res,device,stream,
+                         args.ps,args.pt,args.wf,args.wb,args.ws,
+                         args.queryStart,args.queryStride,
+                         srch_burst,patches,fflow,bflow,
+                         tOutDistances,tOutIntIndices);
 
     }else if (args.fxn_name == Kn3FxnName::PFILLTEST){
 

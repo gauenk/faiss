@@ -40,7 +40,7 @@ class TestTopKPatches(unittest.TestCase):
 
         #  -- Read Data (Image & VNLB-C++ Results) --
         clean = testing.load_dataset(dname).to(device)[:5]
-        clean = th.zeros((15,3,32,32)).to(device)
+        clean = th.zeros((15,3,32,32)).to(device).type(th.float32)
         clean = clean * 1.0
         noisy = clean + sigma * th.normal(0,1,size=clean.shape,device=device)
         return clean,noisy
@@ -103,10 +103,17 @@ class TestTopKPatches(unittest.TestCase):
                                    vpss_inds,flows,sigma,args)
 
         # -- fill patches --
-        vpss.get_patches_burst(clean,vpss_inds,ps,pt=pt,patches=vpss_patches)
+        vpss.get_patches_burst(clean,vpss_inds,ps,pt=pt,patches=vpss_patches,
+                               fill_mode="faiss")
 
         # -- return --
         th.cuda.synchronize()
+
+        # -- weight floating-point issue --
+        vpss_patches = vpss_patches.type(th.float32)
+        vpss_patches /= 255.
+        vpss_patches *= 255.
+
         return vpss_patches
 
     def exec_kn3_search(self,K,clean,flows,sigma,args,bufs):
@@ -132,7 +139,7 @@ class TestTopKPatches(unittest.TestCase):
         kn3.run_search(clean/255.,0,BSIZE,flows,sigma/255.,args,bufs,pfill=True)
         th.cuda.synchronize()
 
-        return kn3_patches
+        return kn3_patches*255.
 
 
     #
@@ -154,7 +161,9 @@ class TestTopKPatches(unittest.TestCase):
         bufs.dists = None
         bufs.inds = None
         clean = 255.*th.rand_like(clean).type(th.float32)
-        noisy = 255.*th.rand_like(clean).type(th.float32)
+        clean /= 255.
+        clean *= 255.
+        noisy = clean.clone()
         args['stype'] = "faiss"
 
         # -- exec over batches --
@@ -171,6 +180,25 @@ class TestTopKPatches(unittest.TestCase):
             kn3_patches = kn3_patches.cpu().numpy()
 
             # -- allow for swapping of "close" values --
+            qindex = 3*32*32+32*16+8
+            # print(kn3_patches[qindex,0,0,0])
+            # print(vpss_patches[qindex,0,0,0])
+            np.testing.assert_array_almost_equal(kn3_patches[qindex,0,0,0],vpss_patches[qindex,0,0,0])
+            qindex = 0
+            np.testing.assert_array_almost_equal(kn3_patches[qindex,0,0,0],vpss_patches[qindex,0,0,0])
+            qindex = -1
+            print(kn3_patches[qindex,0,0,:4,:4])
+            print(vpss_patches[qindex,0,0,:4,:4])
+            np.testing.assert_array_almost_equal(kn3_patches[qindex,0,0,0],vpss_patches[qindex,0,0,0])
+            print("PASSED.")
+            neq = np.where(np.abs(kn3_patches - vpss_patches) > 100.)
+            # kn3_patches
+            print(neq)
+            # bidx = neq[0][0]
+            # kidx = neq[1][0]
+            # print(bidx,kidx)
+            # print(kn3_patches[bidx,kidx,0])
+            # print(vpss_patches[bidx,kidx,0])
             np.testing.assert_array_equal(kn3_patches,vpss_patches)
             # np.testing.assert_array_almost_equal(kn3_vals,vpss_vals)
 
