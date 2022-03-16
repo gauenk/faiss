@@ -82,6 +82,19 @@ void runKn3Distance(GpuResources* res,
     fprintf(stdout,"tileQueries,tileSearch: %d,%d\n",tileQueries,tileSearch);
     fprintf(stdout,"numQueryTiles,numSearchTiles: %d,%d\n",numQueryTiles,numSearchTiles);
 
+    //
+    // --> Allocate a frame offsets <--
+    //
+    // DeviceTensor<float, 2, true> f(
+    //         res, makeTempAlloc(AllocType::Other, stream),
+    //         {tileQueries, tileSearch * timeWindowSize});
+    // DeviceTensor<float, 2, true> distanceBuf2(
+    //         res, makeTempAlloc(AllocType::Other, stream),
+    //         {tileQueries, tileSearch * timeWindowSize});
+    // DeviceTensor<float, 2, true>* distanceBufs[2] = {
+    //         &distanceBuf1, &distanceBuf2};
+
+
     // We can have any number of vectors to query against, even less than k, in
     // which case we'll return -1 for the index
     FAISS_ASSERT(k <= GPU_MAX_SELECTION_K); // select limitation

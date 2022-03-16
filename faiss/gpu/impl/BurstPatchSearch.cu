@@ -74,8 +74,10 @@ __global__ void burstPatchSearchKernel(
     int spaceStart = BatchSpace*(blockIdx.y)+spaceStartInput; // batch size is 1
     int timeWindowSize = wf + wb + 1;
     float Z = ps * ps;
+    constexpr int wSizeMax = 13;
 
     // accumulation location for norm
+    float flowIndex[BatchQueries][BatchSpace][wSizeMax][2];
     float pixNorm[BatchQueries][BatchSpace];
 
     /*
@@ -95,6 +97,32 @@ __global__ void burstPatchSearchKernel(
       if (NormLoop){
 
       }else{
+
+        /*
+        // Compute the optical flow offsets
+        for(int tidx = 0; tidx < timeWindowSize; ++tidx){
+#pragma unroll
+          for (int qidx = 0; qidx < BatchQueries; ++qidx) {
+#pragma unroll
+            for (int sidx = 0; sidx < BatchSpace; ++sidx) {
+              int queryIndex = queryIndexStart + qidx;
+              int r_frame = query[queryIndex][0];
+
+              int shift_t_min = inline_min(0,r_frame - wb);
+              int shift_t_max = inline_max(0,r_frame + wf - nframes + pt);
+              int shift_t = shift_t_min + shift_t_max;
+              int min_frame_shift = inline_max(r_frame - wb - shift_t,0);
+              int min_frame = r_frame  - min_frame_shift;
+              int p_frame = r_frame + frame_index - min_frame_shift;
+              int dt = p_frame - min_frame;
+
+              flowOffset[qidx][sidx][0] = 0;
+              flowOffset[qidx][sidx][1] = 0;
+            }
+          }
+        }
+        */
+
         // A block of threads is the exact size of the vector
 #pragma unroll
         for (int qidx = 0; qidx < BatchQueries; ++qidx) {
@@ -127,9 +155,12 @@ __global__ void burstPatchSearchKernel(
             int shift_t_max = inline_max(0,r_frame + wf - nframes + pt);
             int shift_t = shift_t_min + shift_t_max;
             int frame_min = inline_max(r_frame - wb - shift_t,0);
+            int frame_min_shift = r_frame - frame_min;
+
+            // Handle Optical Flow
 
             // Proposed Location [top-left of search patch]
-            int p_frame = r_frame + frame_index - frame_min;
+            int p_frame = r_frame + frame_index - frame_min_shift;
             int p_rowTop = r_rowTop + space_row;
             int p_colLeft = r_colLeft + space_col;
               

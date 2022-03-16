@@ -39,7 +39,7 @@ class TestTopKSearch(unittest.TestCase):
     def do_load_data(self,dname,sigma,device="cuda:0"):
 
         #  -- Read Data (Image & VNLB-C++ Results) --
-        clean = testing.load_dataset(dname).to(device)
+        clean = testing.load_dataset(dname).to(device)[:5]
         clean = clean * 1.0
         noisy = clean + sigma * th.normal(0,1,size=clean.shape,device=device)
         return clean,noisy
@@ -79,6 +79,53 @@ class TestTopKSearch(unittest.TestCase):
         inds = -th.ones((bsize,k),dtype=ti32,device=device)
         return vals,inds
 
+    def exec_vpss_search(self,K,clean,flows,sigma,args):
+
+        # -- unpack --
+        device = clean.device
+        shape = clean.shape
+        t,c,h,w = shape
+
+        # -- get search inds --
+        index,BSIZE = 0,t*h*w
+        srch_inds = self.get_search_inds(index,BSIZE,shape,device)
+        srch_inds = srch_inds.type(th.int32)
+
+        # -- get return shells --
+        vpss_vals,vpss_inds = self.init_topk_shells(BSIZE,K,device)
+
+        # -- search using numba code --
+        vpss.exec_sim_search_burst(clean,srch_inds,vpss_vals,
+                                   vpss_inds,flows,sigma,args)
+        return vpss_vals,vpss_inds
+
+    def exec_kn3_search(self,K,clean,flows,sigma,args,bufs):
+
+        # -- unpack --
+        device = clean.device
+        shape = clean.shape
+        t,c,h,w = shape
+
+        # -- get search inds --
+        index,BSIZE = 0,t*h*w
+        srch_inds = self.get_search_inds(index,BSIZE,shape,device)
+        srch_inds = srch_inds.type(th.int32)
+
+        # -- get return shells --
+        kn3_vals,kn3_inds = self.init_topk_shells(BSIZE,K,device)
+        # print(srch_inds.shape,kn3_vals.shape,kn3_inds.shape)
+        bufs.dists = kn3_vals
+        bufs.inds = kn3_inds
+
+        # -- search --
+        # print("clean.max().item(): ",clean.max().item())
+        kn3.run_search(clean/255.,srch_inds,flows,sigma/255.,args,bufs)
+        # print(bufs.dists)
+        # print(bufs.inds)
+
+        return kn3_vals,kn3_inds
+
+
     #
     # -- [Exec] Sim Search --
     #
@@ -110,28 +157,11 @@ class TestTopKSearch(unittest.TestCase):
         # -- exec over batches --
         for index in range(NBATCHES):
 
-            # -- get testing inds --
-            srch_inds = self.get_search_inds(index,BSIZE,shape,device)
-            srch_inds = srch_inds.type(th.int32)
-
-            # -- get return sizes --
-            vpss_vals,vpss_inds = self.init_topk_shells(BSIZE,K,device)
-            kn3_vals,kn3_inds = self.init_topk_shells(BSIZE,K,device)
-
-            # -- search using numba code --
-            vpss.exec_sim_search_burst(clean,srch_inds,vpss_vals,
-                                       vpss_inds,flows,sigma,args)
+            # -- search using python code --
+            vpss_vals,vpss_inds = self.exec_vpss_search(K,clean,flows,sigma,args)
 
             # -- search using faiss code --
-            # vpss.exec_sim_search_burst(clean,srch_inds,kn3_vals,
-            #                            kn3_inds,flows,sigma,args)
-            print(srch_inds.shape,kn3_vals.shape,kn3_inds.shape)
-            bufs.dists = kn3_vals
-            bufs.inds = kn3_inds
-            print("clean.max().item(): ",clean.max().item())
-            kn3.run_search(clean/255.,srch_inds,flows,sigma/255.,args,bufs)
-            print(bufs.dists)
-            print(bufs.inds)
+            kn3_vals,kn3_inds = self.exec_kn3_search(K,clean,flows,sigma,args,bufs)
 
             # -- to numpy --
             vpss_vals = vpss_vals.cpu().numpy()
