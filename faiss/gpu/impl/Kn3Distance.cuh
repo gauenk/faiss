@@ -22,8 +22,8 @@ void runL2Distance(
         GpuResources* resources,
         cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
+        int queryStart, int queryStride,
         Tensor<float, 4, true>& srch_burst,
-        Tensor<int, 2, true>& queries,
         Tensor<float, 4, true>& fflow,
         Tensor<float, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
@@ -33,8 +33,8 @@ void runL2Distance(
         GpuResources* resources,
         cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
+        int queryStart, int queryStride,
         Tensor<half, 4, true>& srch_burst,
-        Tensor<int, 2, true>& queries,
         Tensor<half, 4, true>& fflow,
         Tensor<half, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
@@ -51,8 +51,8 @@ void bfKn3OnDevice(
         int device,
         cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
+        int queryStart, int queryStride,
         Tensor<T, 4, true>& srch_burst,
-        Tensor<int, 2, true>& queries,
         Tensor<T, 4, true>& fflow,
         Tensor<T, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
@@ -65,8 +65,8 @@ void bfKn3OnDevice(
     runL2Distance(resources,
                   stream,
                   ps,pt,wf,wb,ws,
+                  queryStart,queryStride,
                   srch_burst,
-                  queries,
                   fflow,bflow,
                   outDistances,
                   outIndices);
@@ -78,8 +78,8 @@ void bfKn3FillOnDevice(
         int device,
         cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
+        int queryStart, int queryStride,
         Tensor<T, 4, true>& srch_burst,
-        Tensor<int, 2, true>& queries,
         Tensor<T, 4, true>& fflow,
         Tensor<T, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
@@ -91,8 +91,8 @@ void bfKn3FillOnDevice(
     runL2Distance(resources,
                   stream,
                   ps,pt,wf,wb,ws,
+                  queryStart,queryStride,
                   srch_burst,
-                  queries,
                   fflow,bflow,
                   outDistances,
                   outIndices);
@@ -134,7 +134,6 @@ void kn3FillOutMats(
         int device,
         cudaStream_t stream,
         Tensor<T, 4, true>& srch_burst,
-        Tensor<int, 2, true>& queries,
         Tensor<float, 2, true>& outDistances,
         Tensor<int, 2, true>& outIndices,
         T fill_dists, int fill_inds) {
@@ -157,7 +156,6 @@ void kn3FillInMats(
         int device,
         cudaStream_t stream,
         Tensor<T, 4, true>& srch_burst,
-        Tensor<int, 2, true>& queries,
         T fill_burst, int fill_query) {
     DeviceScope ds(device);
     // We are guaranteed that all data arguments are resident on our preferred
@@ -166,9 +164,9 @@ void kn3FillInMats(
     thrust::fill(thrust::cuda::par.on(stream),
                  srch_burst.data(),
                  srch_burst.end(),fill_burst);
-    thrust::fill(thrust::cuda::par.on(stream),
-                 queries.data(),
-                 queries.end(),fill_query);
+    // thrust::fill(thrust::cuda::par.on(stream),
+    //              queries.data(),
+    //              queries.end(),fill_query);
 
     return;
 }
@@ -196,10 +194,10 @@ inline void chooseKn3TileSize(int numQueries,
     auto totalMem = getCurrentDeviceProperties().totalGlobalMem;
     int nstreams = 2;
     long long targetUsage = 1024 * 1024 * 1024;
-    fprintf(stdout,"targetUsage: %lld\n",targetUsage);
+    // fprintf(stdout,"targetUsage: %lld\n",targetUsage);
     targetUsage /= nstreams * elementSize; // usage per stream
     targetUsage *= 2;
-    fprintf(stdout,"targetUsage: %lld\n",targetUsage);
+    // fprintf(stdout,"targetUsage: %lld\n",targetUsage);
 
     // fix default queries to specific size
     int preferredTileQueries = 20;

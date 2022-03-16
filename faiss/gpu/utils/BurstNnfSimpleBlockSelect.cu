@@ -103,6 +103,10 @@ namespace faiss {
 
       // assert shapes 
 
+      // batching
+      constexpr int batchQueries = 8;
+      constexpr int batchSpace = 1;
+
       // setup kernel launch
       int maxThreads = (int) getMaxThreadsCurrentDevice();
       int numQueries = inVals.getSize(0);

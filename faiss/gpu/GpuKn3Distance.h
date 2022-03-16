@@ -51,8 +51,8 @@ struct GpuKn3DistanceParams {
               fflow(nullptr),
               bflow(nullptr),
               vectorType(DistanceDataType::F32),
-              queries(nullptr),
-              queriesRowMajor(true),
+              queryStart(0),
+              queryStride(0),
               numQueries(0),
               outDistances(nullptr),
               ignoreOutDistances(false),
@@ -109,8 +109,8 @@ struct GpuKn3DistanceParams {
     /// If queriesRowMajor is true, this is
     /// numQueries x dims, with dims innermost; otherwise,
     /// dims x numQueries, with numQueries innermost
-    const void* queries;
-    bool queriesRowMajor;
+    int queryStart;
+    int queryStride;
     int numQueries;
 
     //

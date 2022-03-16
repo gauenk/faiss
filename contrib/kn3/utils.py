@@ -87,7 +87,7 @@ def get_flow(flow,shape,device,flow_alloced=None):
 def get_3d_inds(inds,c,h,w):
 
     # -- unpack --
-    chw,hw = c*h*w,h*w
+    hw = h*w # no "chw" in this code-base; its silly.
     bsize,num = inds.shape
     device = inds.device
 
@@ -100,7 +100,7 @@ def get_3d_inds(inds,c,h,w):
     aug_inds = aug_inds.to(inds.device)
 
     # -- fill --
-    aug_inds[0,...] = tdiv(inds,chw,rounding_mode='floor') # inds // chw
+    aug_inds[0,...] = tdiv(inds,hw,rounding_mode='floor') # inds // chw
     aug_inds[1,...] = tdiv(tmod(inds,hw),w,rounding_mode='floor') # (inds % hw) // w
     aug_inds[2,...] = tmod(inds,w)
     aug_inds = rearrange(aug_inds,'three b n -> (b n) three')

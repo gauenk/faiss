@@ -10,8 +10,10 @@ import torch as th
 # -- local --
 from .utils import get_buf,check_contiguous,get_contiguous,\
     get_float_ptr,get_int_ptr,optional,get_patches,get_flow
+from .clock import Timer
 
-def get_faiss_args(xb,xb_fill,xq,args,flows,bufs,fxn_name=faiss.Kn3FxnName_KDIST):
+def get_faiss_args(xb,xb_fill,queryStart,numQueries,args,flows,bufs,
+                   fxn_name=faiss.Kn3FxnName_KDIST):
 
     # -- unpack args --
     k = optional(args,'k',-1)
@@ -20,6 +22,8 @@ def get_faiss_args(xb,xb_fill,xq,args,flows,bufs,fxn_name=faiss.Kn3FxnName_KDIST
     ws = optional(args,'ws',27)
     wf = optional(args,'wf',6)
     wb = optional(args,'wb',6)
+    queryStride = optional(args,'queryStride',1)
+    nq = numQueries
 
     # -- unpack flows --
     fflow = optional(flows,'fflow',None)
@@ -39,7 +43,6 @@ def get_faiss_args(xb,xb_fill,xq,args,flows,bufs,fxn_name=faiss.Kn3FxnName_KDIST
 
     # -- check sizes --
     t,c,h,w = xb.size()
-    nq, d = xq.size()
 
     # -- alloc/format patch --
     kdist_b = fxn_name == faiss.Kn3FxnName_KDIST
@@ -66,9 +69,7 @@ def get_faiss_args(xb,xb_fill,xq,args,flows,bufs,fxn_name=faiss.Kn3FxnName_KDIST
 
     # --- faiss info --
     xb = get_contiguous(xb)
-    xq = get_contiguous(xq)
     xb_ptr,xb_type = get_float_ptr(xb)
-    xq_ptr,xq_type = get_int_ptr(xq)
     if xb_fill is None: xbfill_ptr = xb_ptr
     else:
         xbfill = get_contiguous(xb_fill)
@@ -81,7 +82,6 @@ def get_faiss_args(xb,xb_fill,xq,args,flows,bufs,fxn_name=faiss.Kn3FxnName_KDIST
 
     # -- type checks --
     assert xb.dtype == tf32
-    assert xq.dtype == ti32
     assert patches.dtype == tf32
 
     # -- create args --
@@ -107,8 +107,8 @@ def get_faiss_args(xb,xb_fill,xq,args,flows,bufs,fxn_name=faiss.Kn3FxnName_KDIST
     args.fill_burst = xbfill_ptr
     args.patches = patches_ptr
     args.vectorType = xb_type
-    args.queries = xq_ptr
-    args.queryType = xq_type
+    args.queryStart = queryStart
+    args.queryStride = queryStride
     args.numQueries = nq
     args.outDistances = D_ptr
     args.outIndices = I_ptr
@@ -116,20 +116,27 @@ def get_faiss_args(xb,xb_fill,xq,args,flows,bufs,fxn_name=faiss.Kn3FxnName_KDIST
 
     return args
 
-def run_search(srch_img,srch_inds,flows,sigma,srch_args,bufs):
+def run_search(srch_img,queryStart,numQueries,flows,sigma,srch_args,bufs):
     """
 
     Execute the burst nearest neighbors search
 
     """
 
+
     # -- faiss args --
     device = srch_img.device
+    args = get_faiss_args(srch_img,None,queryStart,numQueries,
+                          srch_args,flows,bufs,fxn_name=faiss.Kn3FxnName_KDIST)
+    # -- setup stream --
     res = faiss.StandardGpuResources()
-    args = get_faiss_args(srch_img,None,srch_inds,
-                          srch_args,flows,bufs,
-                          fxn_name=faiss.Kn3FxnName_KDIST)
+    pytorch_stream = th.cuda.current_stream()
+    cuda_stream_s = faiss.cast_integer_to_cudastream_t(pytorch_stream.cuda_stream)
+    res.setDefaultStream(th.cuda.current_device(), cuda_stream_s)
 
     # -- exec --
-    with using_stream(res):
-        faiss.bfKn3(res, args)
+    clock = Timer()
+    clock.tic()
+    faiss.bfKn3(res, args)
+    clock.toc()
+    print(clock)

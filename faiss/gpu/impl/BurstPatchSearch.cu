@@ -31,7 +31,7 @@ __global__ void burstPatchSearchKernel(
 	Tensor<T, 4, true, int> burst,
 	Tensor<T, 4, true, int> fflow,
 	Tensor<T, 4, true, int> bflow,
-	Tensor<int, 2, true, int> query,
+    int queryStart, int queryStride,
 	Tensor<float, 2, true, int> vals,
 	Tensor<int, 2, true, int> inds,
     int spaceStartInput, int ps, int pt, int ws, int wf, int wb){
@@ -56,6 +56,7 @@ __global__ void burstPatchSearchKernel(
     int height = burst.getSize(2);
     int width = burst.getSize(3);
     int wsHalf = (ws-1)/2;
+    int npix = height * width;
     // if ((laneId == 0) && (blockIdx.x == 0)){
     //   // printf("frame_index: %d, frame_index - wb: %d\n",frame_index,frame_index-wb);
     //   printf("nframes: %d, height: %d, width: %d\n",nframes,height,width);
@@ -65,19 +66,19 @@ __global__ void burstPatchSearchKernel(
     int k = vals.getSize(1);
 
     // Unpack Shapes [Queries]
-    int numQueries = query.getSize(0);
+    int numQueries = vals.getSize(0);
     int numQueryBlocks = numQueries / BatchQueries;
 
     // Blocks to Indices
     int numPerThread = ps*ps;
     int queryIndexStart = BatchQueries*(blockIdx.x); // batch size is 1 
-    int spaceStart = BatchSpace*(blockIdx.y)+spaceStartInput; // batch size is 1
+    int spaceStart = BatchSpace*(blockIdx.y); // batch size is 1
     int timeWindowSize = wf + wb + 1;
     float Z = ps * ps;
     constexpr int wSizeMax = 13;
 
     // accumulation location for norm
-    float flowIndex[BatchQueries][BatchSpace][wSizeMax][2];
+    // float flowIndex[BatchQueries][BatchSpace][wSizeMax][2];
     float pixNorm[BatchQueries][BatchSpace];
 
     /*
@@ -134,17 +135,20 @@ __global__ void burstPatchSearchKernel(
             //
 
             // Unpack Query Index [center pix of patch]
-            int queryIndex = queryIndexStart + qidx;
-            int r_query_row = query[queryIndex][1];
-            int r_query_col = query[queryIndex][2];
+            int queryIndex = queryStride*(queryIndexStart + queryStart + qidx);
+            int r_frame = queryIndex / npix;
+            int r_query_row = (queryIndex % npix) / width;
+            int r_query_col = queryIndex % width;
+            // int r_query_row = query[queryIndex][1];
+            // int r_query_col = query[queryIndex][2];
               
             // Reference Location [top-left of patch]
-            int r_frame = query[queryIndex][0];
+            // int r_frame = query[queryIndex][0];
             int r_rowTop = r_query_row - ps/2;
             int r_colLeft = r_query_col - ps/2;
 
             // Unpack Search Index [offset in search space]
-            int spaceIndex = spaceStart + sidx;
+            int spaceIndex = (spaceStart + sidx) + spaceStartInput;
             int space_row = spaceIndex / ws - wsHalf;
             int space_col = spaceIndex % ws - wsHalf;
 
@@ -288,7 +292,7 @@ template <typename T>
 void runBurstNnfL2Norm(Tensor<T, 4, true>& burst,
                        Tensor<T, 4, true>& fflow,
                        Tensor<T, 4, true>& bflow,
-                       Tensor<int, 2, true>& query,
+                       int queryStart, int queryStride,
                        Tensor<float, 2, true>& vals,
                        Tensor<int, 2, true>& inds,
                        int start, int numSearch,
@@ -296,7 +300,7 @@ void runBurstNnfL2Norm(Tensor<T, 4, true>& burst,
                        cudaStream_t stream){
 
   int maxThreads = (int)getMaxThreadsCurrentDevice();
-  constexpr int batchQueries = 1;
+  constexpr int batchQueries = 8;
   constexpr int batchSpace = 1;
   bool normLoop = false;
 
@@ -304,12 +308,12 @@ void runBurstNnfL2Norm(Tensor<T, 4, true>& burst,
     do {                                                                      \
          if (normLoop) {                                                       \
          burstPatchSearchKernel<TYPE_T,batchQueries,batchSpace,true>  \
-           <<<grid, block, smem, stream>>>(burst, fflow, bflow, query, vals, inds, \
-                                           start, ps, pt ,ws ,wf, wb);  \
+           <<<grid, block, smem, stream>>>(burst, fflow, bflow, queryStart, queryStride, \
+                   vals, inds, start, ps, pt ,ws ,wf, wb);                        \
          } else {                                                              \
          burstPatchSearchKernel<TYPE_T,batchQueries,batchSpace,false>  \
-           <<<grid, block, smem, stream>>>(burst, fflow, bflow, query, vals, inds, \
-                                           start, ps, pt ,ws ,wf, wb);  \
+           <<<grid, block, smem, stream>>>(burst, fflow, bflow, queryStart, queryStride, \
+                   vals, inds, start, ps, pt ,ws ,wf, wb);                        \
          }                                                                     \
      } while (0)
 
@@ -319,7 +323,8 @@ void runBurstNnfL2Norm(Tensor<T, 4, true>& burst,
 //     int dim = patchsize*patchsize*nftrs*nframes;
 //     bool normLoop = dim > maxThreads;
 
-    int numQueries = query.getSize(0);
+    int  numQueries = vals.getSize(0);
+    // int numQueries = query.getSize(0);
     int numComps = batchQueries * batchSpace;
 
     int timeWindowSize = wb + wf + 1;
@@ -345,7 +350,8 @@ void runBurstNnfL2Norm(Tensor<T, 4, true>& burst,
 
     // get grids and threads 
     int numQueryBlocks = numQueries / batchQueries;
-    // fprintf(stdout,"numSearch: %d\n",numSearch);
+    // fprintf(stdout,"numQueries,numSearch: (%d,%d)\n",numQueries,numSearch);
+    // fprintf(stdout,"numQueryBlocks: %d\n",numQueryBlocks);
     auto grid = dim3(numQueryBlocks,numSearch);
     auto block = dim3(numThreads);
     auto smem = sizeof(float) * timeWindowSize * numComps * nWarps;
@@ -368,27 +374,29 @@ void runBurstNnfL2Norm(Tensor<T, 4, true>& burst,
 void runBurstNnfL2Norm(Tensor<float, 4, true>& burst,
                        Tensor<float, 4, true> fflow,
                        Tensor<float, 4, true> bflow,
-                       Tensor<int, 2, true>& query,
+                       int queryStart, int queryStride,
                        Tensor<float, 2, true>& vals,
                        Tensor<int, 2, true>& inds,
                        int srch_start, int numSearch,
                        int ps, int pt, int ws, int wf, int wb,
                        cudaStream_t stream){
-  runBurstNnfL2Norm<float>(burst, fflow, bflow, query, vals, inds,
-                           srch_start, numSearch, ps, pt, ws, wf, wb, stream);
+  runBurstNnfL2Norm<float>(burst, fflow, bflow, queryStart, queryStride,
+                           vals, inds, srch_start, numSearch,
+                           ps, pt, ws, wf, wb, stream);
 }
 
 void runBurstNnfL2Norm(Tensor<half, 4, true>& burst,
                        Tensor<half, 4, true> fflow,
                        Tensor<half, 4, true> bflow,
-                       Tensor<int, 2, true>& query,
+                       int queryStart, int queryStride,
                        Tensor<float, 2, true>& vals,
                        Tensor<int, 2, true>& inds,
                        int srch_start, int numSearch,
                        int ps, int pt, int ws, int wf, int wb,
                        cudaStream_t stream){
-  runBurstNnfL2Norm<half>(burst, fflow, bflow, query, vals, inds,
-                          srch_start, numSearch, ps, pt, ws, wf, wb, stream);
+  runBurstNnfL2Norm<half>(burst, fflow, bflow, queryStart, queryStride,
+                          vals, inds, srch_start, numSearch,
+                          ps, pt, ws, wf, wb, stream);
 }
 
 } // namespace gpu

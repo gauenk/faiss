@@ -30,8 +30,9 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
     FAISS_THROW_IF_NOT_MSG(args.width > 0, "bfKn3: image width must be > 0");
     FAISS_THROW_IF_NOT_MSG(
             args.srch_burst, "bfKn3: vectors must be provided (passed null)");
+    FAISS_THROW_IF_NOT_MSG(args.queryStart >= 0, "bfKn3: queryStart must be >= 0");
+    FAISS_THROW_IF_NOT_MSG(args.queryStride >= 1, "bfKn3: queryStride must be >= 1");
     FAISS_THROW_IF_NOT_MSG(args.numQueries > 0, "bfKn3: numQueries must be > 0");
-    FAISS_THROW_IF_NOT_MSG(args.queries, "bfKn3: queries must be provided (passed null)");
     FAISS_THROW_IF_NOT_MSG(args.outDistances,
             "bfKn3: outDistances must be provided (passed null)");
     FAISS_THROW_IF_NOT_MSG(args.outIndices || args.k == -1,
@@ -58,24 +59,19 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
             const_cast<T*>(reinterpret_cast<const T*>(args.srch_burst)),
             stream,
             {args.nframes,args.nchnls,args.height,args.width});
-    auto tQueries = toDeviceTemporary<int, 2>(
-            res,device,
-            const_cast<int*>(reinterpret_cast<const int*>(args.queries)),
-            stream,
-            {args.numQueries,3});
 
     // Allocate fFlow, bFlow
     auto fflow = toDeviceTemporary<T, 4>(
             res,device,
             const_cast<T*>(reinterpret_cast<const T*>(args.fflow)),
             stream,
-            {args.nframes,args.nchnls,args.height,args.width});
+            {args.nframes,2,args.height,args.width});
     auto bflow = toDeviceTemporary<T, 4>(
             res,
             device,
             const_cast<T*>(reinterpret_cast<const T*>(args.bflow)),
             stream,
-            {args.nframes,args.nchnls,args.height,args.width});
+            {args.nframes,2,args.height,args.width});
 
     // Output Distances and Inds
     auto tOutDistances = toDeviceTemporary<float, 2>(res,
@@ -88,7 +84,6 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
                                                     (int*)args.outIndices,
                                                     stream,
                                                     {args.numQueries, args.k});
-
     // Since we've guaranteed that all arguments are
     // on device, call the implementation
 
@@ -97,10 +92,9 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
       // Only _Compute_ the Nearest Neighbors (no fill)
       bfKn3OnDevice<T>(res,device,stream,
                        args.ps,args.pt,args.wf,args.wb,args.ws,
-                       srch_burst,tQueries,
-                       fflow,bflow,
-                       tOutDistances,
-                       tOutIntIndices);
+                       args.queryStart,args.queryStride,
+                       srch_burst,fflow,bflow,
+                       tOutDistances,tOutIntIndices);
 
     }else if (args.fxn_name == Kn3FxnName::KFILL){
 
@@ -110,15 +104,11 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
                      {args.numQueries,args.k,args.pt,args.nchnls,args.ps,args.ps});
 
       // Compute Nearest Neighbors AND Fill
-      bfKn3FillOnDevice<T>(res,
-                           device,
-                           stream,
+      bfKn3FillOnDevice<T>(res,device,stream,
                            args.ps,args.pt,args.wf,args.wb,args.ws,
-                           srch_burst,
-                           tQueries,
-                           fflow,bflow,
-                           tOutDistances,
-                           tOutIntIndices);
+                           args.queryStart,args.queryStride,
+                           srch_burst,fflow,bflow,
+                           tOutDistances,tOutIntIndices);
 
     }else if (args.fxn_name == Kn3FxnName::PFILLTEST){
 
@@ -143,11 +133,8 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
                                                       stream,
                                                       {args.numQueries, args.k});
       // Fill outputs for computing nearest neighbors
-      kn3FillOutMats<T>(res,
-                        device,
-                        stream,
-                        srch_burst,
-                        tQueries,
+      kn3FillOutMats<T>(res,device,
+                        stream,srch_burst,
                         tOutDistances,
                         tOutIntIndices,
                         args.fill_a,
@@ -165,7 +152,6 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
                        device,
                        stream,
                        srch_burst,
-                       tQueries,
                        args.fill_a,
                        args.fill_b);
     }else{

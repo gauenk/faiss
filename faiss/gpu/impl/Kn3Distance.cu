@@ -32,11 +32,10 @@ namespace faiss {
 namespace gpu {
 
 template <typename T>
-void runKn3Distance(GpuResources* res,
-                    cudaStream_t stream,
+void runKn3Distance(GpuResources* res,cudaStream_t stream,
                     int ps, int pt, int wf, int wb, int ws,
+                    int queryStart, int queryStride,
                     Tensor<T, 4, true>& srch_burst,
-                    Tensor<int, 2, true>& queries,
                     Tensor<T, 4, true>& fflow,
                     Tensor<T, 4, true>& bflow,
                     Tensor<float, 2, true>& outDistances,
@@ -49,25 +48,26 @@ void runKn3Distance(GpuResources* res,
     auto width = srch_burst.getSize(3);
 
     // The # of queries; we batch over these twice
-    auto numQueries = queries.getSize(0);
-    auto qdim = queries.getSize(1);
+    // auto numQueries = queries.getSize(0);
+    // auto qdim = queries.getSize(1);
 
     // The "k" of the knn
     auto k = outDistances.getSize(1);
+    auto numQueries = outDistances.getSize(0);
 
     // The dimensions of the vectors to consider
-    FAISS_ASSERT(qdim == 3);
+    // FAISS_ASSERT(qdim == 3);
     FAISS_ASSERT(outDistances.getSize(0) == numQueries);
     FAISS_ASSERT(outIndices.getSize(0) == numQueries);
 
     // If we're querying against a 0 sized set, just return empty results
-    thrust::fill(thrust::cuda::par.on(stream),
-                 outDistances.data(),
-                 outDistances.end(),
-                 Limits<float>::getMax());
-    thrust::fill(thrust::cuda::par.on(stream),
-                 outIndices.data(),
-                 outIndices.end(),-1);
+    // thrust::fill(thrust::cuda::par.on(stream),
+    //              outDistances.data(),
+    //              outDistances.end(),
+    //              Limits<float>::getMax());
+    // thrust::fill(thrust::cuda::par.on(stream),
+    //              outIndices.data(),
+    //              outIndices.end(),-1);
 
     // By default, aim to use up to 512 MB of memory for the processing, with
     // both number of queries and number of centroids being at least 512.
@@ -75,12 +75,13 @@ void runKn3Distance(GpuResources* res,
     int timeWindowSize = wf*wb+1;
     int tileQueries,tileSearch;
     chooseKn3TileSize(numQueries,numSearch,sizeof(T),tileQueries,tileSearch);
+    tileQueries = 1024;
     tileSearch = numSearch;
     int numQueryTiles = utils::divUp(numQueries, tileQueries);
     int numSearchTiles = utils::divUp(numSearch, tileSearch);
-    fprintf(stdout,"numQueries,numSearch: %d,%d\n",numQueries,numSearch);
-    fprintf(stdout,"tileQueries,tileSearch: %d,%d\n",tileQueries,tileSearch);
-    fprintf(stdout,"numQueryTiles,numSearchTiles: %d,%d\n",numQueryTiles,numSearchTiles);
+    // fprintf(stdout,"numQueries,numSearch: %d,%d\n",numQueries,numSearch);
+    // fprintf(stdout,"tileQueries,tileSearch: %d,%d\n",tileQueries,tileSearch);
+    // fprintf(stdout,"numQueryTiles,numSearchTiles: %d,%d\n",numQueryTiles,numSearchTiles);
 
     //
     // --> Allocate a frame offsets <--
@@ -109,23 +110,23 @@ void runKn3Distance(GpuResources* res,
     DeviceTensor<float, 2, true>* distanceBufs[2] = {
             &distanceBuf1, &distanceBuf2};
 
-    DeviceTensor<float, 2, true> outDistanceBuf1(
-            res, makeTempAlloc(AllocType::Other, stream),
-            {tileQueries, numSearchTiles * k});
-    DeviceTensor<float, 2, true> outDistanceBuf2(
-            res, makeTempAlloc(AllocType::Other, stream),
-            {tileQueries, numSearchTiles * k});
-    DeviceTensor<float, 2, true>* outDistanceBufs[2] = {
-            &outDistanceBuf1, &outDistanceBuf2};
+    // DeviceTensor<float, 2, true> outDistanceBuf1(
+    //         res, makeTempAlloc(AllocType::Other, stream),
+    //         {tileQueries, numSearchTiles * k});
+    // DeviceTensor<float, 2, true> outDistanceBuf2(
+    //         res, makeTempAlloc(AllocType::Other, stream),
+    //         {tileQueries, numSearchTiles * k});
+    // DeviceTensor<float, 2, true>* outDistanceBufs[2] = {
+    //         &outDistanceBuf1, &outDistanceBuf2};
 
-    DeviceTensor<int, 2, true> outIndexBuf1(
-            res, makeTempAlloc(AllocType::Other, stream),
-            {tileQueries, numSearchTiles * k});
-    DeviceTensor<int, 2, true> outIndexBuf2(
-            res, makeTempAlloc(AllocType::Other, stream),
-            {tileQueries, numSearchTiles * k});
-    DeviceTensor<int, 2, true>* outIndexBufs[2] = {
-            &outIndexBuf1, &outIndexBuf2};
+    // DeviceTensor<int, 2, true> outIndexBuf1(
+    //         res, makeTempAlloc(AllocType::Other, stream),
+    //         {tileQueries, numSearchTiles * k});
+    // DeviceTensor<int, 2, true> outIndexBuf2(
+    //         res, makeTempAlloc(AllocType::Other, stream),
+    //         {tileQueries, numSearchTiles * k});
+    // DeviceTensor<int, 2, true>* outIndexBufs[2] = {
+    //         &outIndexBuf1, &outIndexBuf2};
 
     auto streams = res->getAlternateStreamsCurrentDevice();
     streamWait(streams, {stream});
@@ -147,13 +148,13 @@ void runKn3Distance(GpuResources* res,
           
         */
         int curQuerySize = std::min(tileQueries, numQueries - i);
+        auto queryStart_i = queryStart + i;
         auto outDistanceView = outDistances.narrow(0, i, curQuerySize);
         auto outIndexView = outIndices.narrow(0, i, curQuerySize);
-        auto queryView = queries.narrow(0, i, curQuerySize);
-        auto outDistanceBufRowView =
-                outDistanceBufs[curStream]->narrow(0, 0, curQuerySize);
-        auto outIndexBufRowView =
-                outIndexBufs[curStream]->narrow(0, 0, curQuerySize);
+        // auto outDistanceBufRowView =
+        //         outDistanceBufs[curStream]->narrow(0, 0, curQuerySize);
+        // auto outIndexBufRowView =
+        //         outIndexBufs[curStream]->narrow(0, 0, curQuerySize);
 
         // Tile over search-space
         for (int j = 0; j < numSearch; j += tileSearch) {
@@ -176,10 +177,10 @@ void runKn3Distance(GpuResources* res,
             auto distanceBufView = distanceBufs[curStream]
                                            ->narrow(0, 0, curQuerySize)
                                            .narrow(1, 0, fullSearchSize);
-            auto outDistanceBufColView =
-                    outDistanceBufRowView.narrow(1, k * curSearchTile, k);
-            auto outIndexBufColView =
-                    outIndexBufRowView.narrow(1, k * curSearchTile, k);
+            // auto outDistanceBufColView =
+            //         outDistanceBufRowView.narrow(1, k * curSearchTile, k);
+            // auto outIndexBufColView =
+            //         outIndexBufRowView.narrow(1, k * curSearchTile, k);
 
 
             /*
@@ -190,18 +191,19 @@ void runKn3Distance(GpuResources* res,
             
             if (curSearchSize == numSearch){ // we search all at once
               
-              thrust::fill(thrust::cuda::par.on(stream),
-                           distanceBufView.data(),
-                           distanceBufView.end(),
-                           Limits<float>::getMax());
+              // thrust::fill(thrust::cuda::par.on(stream),
+              //              distanceBufView.data(),
+              //              distanceBufView.end(),
+              //              Limits<float>::getMax());
               // thrust::fill(thrust::cuda::par.on(stream),
               //              outDistanceView.data(),
               //              outDistanceView.end(),
               //              Limits<float>::getMax());
 
-              runBurstNnfL2Norm(srch_burst,fflow,bflow,queryView,
-                                distanceBufView,outIndexView,
-                                j,curSearchSize,ps,pt,ws,wf,wb,stream);
+              // runBurstNnfL2Norm(srch_burst,fflow,bflow,
+              //                   queryStart_i,queryStride,
+              //                   distanceBufView,outIndexView,
+              //                   j,curSearchSize,ps,pt,ws,wf,wb,stream);
               runBurstNnfSimpleBlockSelect(distanceBufView,
                                            outDistanceView,
                                            outIndexView,stream);
@@ -319,23 +321,19 @@ void runKn3Distance(GpuResources* res,
 
 template <typename T>
 void runL2Distance(
-        GpuResources* res,
-        cudaStream_t stream,
+        GpuResources* res, cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
+        int queryStart, int queryStride,
         Tensor<T, 4, true>& srch_burst,
-        Tensor<int, 2, true>& queries,
         Tensor<T, 4, true>& fflow,
         Tensor<T, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
         Tensor<int, 2, true>& outIndices) {
-    runKn3Distance<T>(res,
-                      stream,
+    runKn3Distance<T>(res,stream,
                       ps,pt,wf,wb,ws,
-                      srch_burst,
-                      queries,
-                      fflow,bflow,
-                      outDistances,
-                      outIndices);
+                      queryStart,queryStride,
+                      srch_burst,fflow,bflow,
+                      outDistances,outIndices);
 }
 
 //
@@ -343,44 +341,36 @@ void runL2Distance(
 //
 
 void runL2Distance(
-        GpuResources* res,
-        cudaStream_t stream,
+        GpuResources* res, cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
+        int queryStart, int queryStride,
         Tensor<float, 4, true>& srch_burst,
-        Tensor<int, 2, true>& queries,
         Tensor<float, 4, true>& fflow,
         Tensor<float, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
         Tensor<int, 2, true>& outIndices){
-    runL2Distance<float>(res,
-                         stream,
+    runL2Distance<float>(res,stream,
                          ps,pt,wf,wb,ws,
-                         srch_burst,
-                         queries,
-                         fflow,bflow,
-                         outDistances,
-                         outIndices);
+                         queryStart,queryStride,
+                         srch_burst,fflow,bflow,
+                         outDistances,outIndices);
 }
 
 void runL2Distance(
-        GpuResources* res,
-        cudaStream_t stream,
+        GpuResources* res, cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
+        int queryStart, int queryStride,
         Tensor<half, 4, true>& srch_burst,
-        Tensor<int, 2, true>& queries,
         Tensor<half, 4, true>& fflow,
         Tensor<half, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
         Tensor<int, 2, true>& outIndices) {
     runL2Distance<half>(
-            res,
-            stream,
+            res,stream,
             ps,pt,wf,wb,ws,
-            srch_burst,
-            queries,
-            fflow,bflow,
-            outDistances,
-            outIndices);
+            queryStart,queryStride,
+            srch_burst,fflow,bflow,
+            outDistances,outIndices);
 }
 
 } // namespace gpu
