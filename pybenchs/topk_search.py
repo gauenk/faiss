@@ -87,7 +87,7 @@ def exec_pm_faiss_tiling(clock,burst,ps=7,subsize=100):
     clock.toc()
 
 def exec_pm_faiss_burst(clock,burst,ps=7,subsize=100):
-    # clock.tic()
+    clock.tic()
     t,c,h,w = burst.shape
     npix = t*h*w
     BSIZE = npix
@@ -97,9 +97,9 @@ def exec_pm_faiss_burst(clock,burst,ps=7,subsize=100):
     args.queryStride = 3
     args.ws = 2
     BSIZE = (npix-1)//args.queryStride + 1
-    kn3.run_search(burst/255.,0,BSIZE,flows,sigma/255.,args,bufs,clock)
-    # th.cuda.synchronize()
-    # clock.toc()
+    kn3.run_search(burst/255.,0,BSIZE,flows,sigma/255.,args,bufs)
+    th.cuda.synchronize()
+    clock.toc()
 
 def pm_select(method):
     if method == "tiling":

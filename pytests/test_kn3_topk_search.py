@@ -40,7 +40,7 @@ class TestTopKSearch(unittest.TestCase):
 
         #  -- Read Data (Image & VNLB-C++ Results) --
         clean = testing.load_dataset(dname).to(device)[:5]
-        clean = th.zeros((5,3,64,64)).to(device)
+        clean = th.zeros((15,3,32,32)).to(device)
         clean = clean * 1.0
         noisy = clean + sigma * th.normal(0,1,size=clean.shape,device=device)
         return clean,noisy
@@ -111,8 +111,6 @@ class TestTopKSearch(unittest.TestCase):
 
         # -- get search inds --
         index,BSIZE = 0,t*h*w
-        # srch_inds = self.get_search_inds(index,BSIZE,shape,device)
-        # srch_inds = srch_inds.type(th.int32)
 
         # -- get return shells --
         kn3_vals,kn3_inds = self.init_topk_shells(BSIZE,K,device)
@@ -120,11 +118,8 @@ class TestTopKSearch(unittest.TestCase):
         bufs.inds = kn3_inds
 
         # -- search --
-        # print("clean.max().item(): ",clean.max().item())
         kn3.run_search(clean/255.,0,BSIZE,flows,sigma/255.,args,bufs)
-        # print(bufs.inds)
         th.cuda.synchronize()
-
 
         return kn3_vals,kn3_inds
 
@@ -141,10 +136,6 @@ class TestTopKSearch(unittest.TestCase):
         NBATCHES = 3
         shape = noisy.shape
         device = noisy.device
-        print("shape: ",shape)
-        print("clean.shape: ",clean.shape)
-        print("noisy.shape: ",noisy.shape)
-
 
         # -- create empty bufs --
         bufs = edict()
@@ -153,38 +144,23 @@ class TestTopKSearch(unittest.TestCase):
         bufs.inds = None
         clean = 255.*th.rand_like(clean).type(th.float32)
         noisy = 255.*th.rand_like(clean).type(th.float32)
-        print(clean.max())
-        print(noisy.max())
         args['stype'] = "faiss"
 
         # -- exec over batches --
         for index in range(NBATCHES):
 
             # -- search using python code --
-            clock = kn3.Timer()
-            clock.tic()
             vpss_vals,vpss_inds = self.exec_vpss_search(K,clean,flows,sigma,args)
-            clock.toc()
-            print("[vpss] clock: ")
-            print(clock)
 
             # -- search using faiss code --
-            clock = kn3.Timer()
-            clock.tic()
             kn3_vals,kn3_inds = self.exec_kn3_search(K,clean,flows,sigma,args,bufs)
-            clock.toc()
-            print("[kn3] clock: ")
-            print(clock)
 
             # -- to numpy --
             vpss_vals = vpss_vals.cpu().numpy()
-            vpss_inds = vpss_inds.cpu().numpy()
             kn3_vals = kn3_vals.cpu().numpy()
-            kn3_inds = kn3_inds.cpu().numpy()
 
             # -- allow for swapping of "close" values --
-            # np.testing.assert_array_almost_equal(kn3_vals,vpss_vals)
-            # np.testing.assert_array_equal(kn3_inds,vpss_inds)
+            np.testing.assert_array_almost_equal(kn3_vals,vpss_vals)
 
     def run_single_test(self,dname,sigma,comp_flow,pyargs):
         noisy,clean = self.do_load_data(dname,sigma)
