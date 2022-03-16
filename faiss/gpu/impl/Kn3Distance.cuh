@@ -61,7 +61,6 @@ void bfKn3OnDevice(
 
     // L2 and IP are specialized to use GEMM and an optimized L2 + selection or
     // pure k-selection kernel.
-    fprintf(stdout,"standard search.\n");
     runL2Distance(resources,
                   stream,
                   ps,pt,wf,wb,ws,

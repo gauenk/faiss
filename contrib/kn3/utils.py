@@ -84,7 +84,7 @@ def get_flow(flow,shape,device,flow_alloced=None):
 #
 # ------------------------------
 
-def get_3d_inds(inds,c,h,w):
+def get_3d_inds(inds,h,w):
 
     # -- unpack --
     hw = h*w # no "chw" in this code-base; its silly.

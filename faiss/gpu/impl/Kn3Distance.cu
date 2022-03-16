@@ -75,7 +75,7 @@ void runKn3Distance(GpuResources* res,cudaStream_t stream,
     int timeWindowSize = wf*wb+1;
     int tileQueries,tileSearch;
     chooseKn3TileSize(numQueries,numSearch,sizeof(T),tileQueries,tileSearch);
-    tileQueries = 1024;
+    tileQueries = 512;
     tileSearch = numSearch;
     int numQueryTiles = utils::divUp(numQueries, tileQueries);
     int numSearchTiles = utils::divUp(numSearch, tileSearch);
@@ -200,10 +200,10 @@ void runKn3Distance(GpuResources* res,cudaStream_t stream,
               //              outDistanceView.end(),
               //              Limits<float>::getMax());
 
-              // runBurstNnfL2Norm(srch_burst,fflow,bflow,
-              //                   queryStart_i,queryStride,
-              //                   distanceBufView,outIndexView,
-              //                   j,curSearchSize,ps,pt,ws,wf,wb,stream);
+              runBurstNnfL2Norm(srch_burst,fflow,bflow,
+                                queryStart_i,queryStride,
+                                distanceBufView,outIndexView,
+                                j,curSearchSize,ps,pt,ws,wf,wb,stream);
               runBurstNnfSimpleBlockSelect(distanceBufView,
                                            outDistanceView,
                                            outIndexView,stream);

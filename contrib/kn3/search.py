@@ -136,7 +136,9 @@ def run_search(srch_img,queryStart,numQueries,flows,sigma,srch_args,bufs):
 
     # -- exec --
     clock = Timer()
+    print("HI")
     clock.tic()
     faiss.bfKn3(res, args)
     clock.toc()
+    print("by")
     print(clock)

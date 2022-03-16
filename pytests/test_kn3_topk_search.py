@@ -40,7 +40,7 @@ class TestTopKSearch(unittest.TestCase):
 
         #  -- Read Data (Image & VNLB-C++ Results) --
         clean = testing.load_dataset(dname).to(device)[:5]
-        clean = th.zeros((5,3,128,128)).to(device)
+        clean = th.zeros((5,3,64,64)).to(device)
         clean = clean * 1.0
         noisy = clean + sigma * th.normal(0,1,size=clean.shape,device=device)
         return clean,noisy
@@ -69,8 +69,9 @@ class TestTopKSearch(unittest.TestCase):
         t,c,h,w  = shape
         start = index * bsize
         stop = ( index + 1 ) * bsize
-        srch_inds = th.arange(start,stop,device=device)[:,None]
-        srch_inds = kn3.get_3d_inds(srch_inds,c,h,w)
+        ti32 = th.int32
+        srch_inds = th.arange(start,stop,dtype=ti32,device=device)[:,None]
+        srch_inds = kn3.get_3d_inds(srch_inds,h,w)
         srch_inds = srch_inds.contiguous()
         return srch_inds
 
@@ -98,6 +99,7 @@ class TestTopKSearch(unittest.TestCase):
         # -- search using numba code --
         vpss.exec_sim_search_burst(clean,srch_inds,vpss_vals,
                                    vpss_inds,flows,sigma,args)
+        th.cuda.synchronize()
         return vpss_vals,vpss_inds
 
     def exec_kn3_search(self,K,clean,flows,sigma,args,bufs):
@@ -109,12 +111,11 @@ class TestTopKSearch(unittest.TestCase):
 
         # -- get search inds --
         index,BSIZE = 0,t*h*w
-        srch_inds = self.get_search_inds(index,BSIZE,shape,device)
-        srch_inds = srch_inds.type(th.int32)
+        # srch_inds = self.get_search_inds(index,BSIZE,shape,device)
+        # srch_inds = srch_inds.type(th.int32)
 
         # -- get return shells --
         kn3_vals,kn3_inds = self.init_topk_shells(BSIZE,K,device)
-        # print(srch_inds.shape,kn3_vals.shape,kn3_inds.shape)
         bufs.dists = kn3_vals
         bufs.inds = kn3_inds
 
@@ -122,6 +123,8 @@ class TestTopKSearch(unittest.TestCase):
         # print("clean.max().item(): ",clean.max().item())
         kn3.run_search(clean/255.,0,BSIZE,flows,sigma/255.,args,bufs)
         # print(bufs.inds)
+        th.cuda.synchronize()
+
 
         return kn3_vals,kn3_inds
 
