@@ -20,7 +20,7 @@ import cache_io
 from easydict import EasyDict as edict
 
 # -- python-kernel search --
-# import vpss
+import vpss
 import vnlb
 
 # -- faiss-tiling search --
@@ -70,7 +70,14 @@ def exec_pm_faiss_burst_eccv2022(clock,burst,ps=7,subsize=100):
 
 def exec_pm_numba(clock,burst,ps=7,subsize=100):
     clock.tic()
-    vnlb.global_search_default(burst,0.,clock,ps,subsize,pfill=True)
+
+    args = vpss.exh_search_default_args()
+    args.bstride = 7
+    args.ps = 7
+    args.k = subsize
+    vpss.exh_search(burst,None,0.,subsize,args)
+    # vnlb.global_search_default(burst,0.,clock,ps,subsize,pfill=True)
+
     th.cuda.synchronize()
     clock.toc()
 
@@ -97,7 +104,7 @@ def exec_pm_faiss_burst(clock,burst,ps=7,subsize=100):
     args.wf = 6
     args.wb = 6
     args.ws = 10
-    BSIZE = (npix-1)//args.queryStride + 1
+    # BSIZE = (npix-1)//args.queryStride + 1
     bufs = kn3.run_search(burst,0,BSIZE,flows,sigma,args,bufs,pfill=True)
     print("bufs.patches.shape: ",bufs.patches.shape)
     th.cuda.synchronize()
@@ -113,7 +120,7 @@ def pm_select(method):
     elif method == "numba":
         time_fxn = exec_pm_numba
     else:
-        raise ValueError(f"Uknown method [{cfg.method}]")
+        raise ValueError(f"Unknown method [{method}]")
     return time_fxn
 
 # ---------------------------
@@ -140,6 +147,7 @@ def timing_pm(cfg):
     # -- patch matching GPU --
     print(f"Patch Matching [{cfg.method}]")
     for i in range(cfg.nreps):
+        th.cuda.empty_cache()
         clock = Timer()
         time_fxn(clock,burst,cfg.ps,cfg.subsize)
         results.times.append(clock.diff)
@@ -160,12 +168,16 @@ def main():
     cache_dir = ".cache_io"
     cache_name = "topk_patches"
     cache = cache_io.ExpCache(cache_dir,cache_name)
-    cache.clear()
+    # cache.clear()
 
     # -- (2) create experiments --
-    exps = {"t":[10],"hw":[64,128,512],"ps":[7],"subsize":[3],
-            "method":["burst"],"nreps":[2]} # "numba",
+    exps = {"t":[10],"hw":[64,128,200],"ps":[7],"subsize":[3],
+            "method":["burst","numba"],"nreps":[2]} # "numba",
     experiments = cache_io.mesh_pydicts(exps) # create mesh
+    exps = {"t":[10],"hw":[64,128,256,512],"ps":[7],"subsize":[3],
+            "method":["burst","tiling"],"nreps":[2]} # "numba",
+    experiments += cache_io.mesh_pydicts(exps) # create mesh
+
 
     # -- (3) [Execute or Load] each Experiment --
     nexps = len(experiments)
