@@ -57,7 +57,7 @@ def exec_pm_faiss_burst_eccv2022(clock,burst,ps=7,subsize=100):
     args = edict()
     args.k = subsize
     args.queryStride = 3
-    args.ws = 2
+    args.ws = 10
     BSIZE = (npix-1)//args.queryStride + 1
     bufs = kn3.run_search(burst,0,BSIZE,flows,sigma/255.,args,bufs,pfill=True)
     clock.toc()
@@ -168,15 +168,15 @@ def main():
     cache_dir = ".cache_io"
     cache_name = "topk_patches"
     cache = cache_io.ExpCache(cache_dir,cache_name)
-    # cache.clear()
+    cache.clear()
 
     # -- (2) create experiments --
-    exps = {"t":[10],"hw":[64,128,200],"ps":[7],"subsize":[3],
-            "method":["burst","numba"],"nreps":[2]} # "numba",
-    experiments = cache_io.mesh_pydicts(exps) # create mesh
+    # exps = {"t":[10],"hw":[64,128,200],"ps":[7],"subsize":[3],
+    #         "method":["burst","numba"],"nreps":[2]} # "numba",
+    # experiments = cache_io.mesh_pydicts(exps) # create mesh
     exps = {"t":[10],"hw":[64,128,256,512],"ps":[7],"subsize":[3],
-            "method":["burst","tiling"],"nreps":[2]} # "numba",
-    experiments += cache_io.mesh_pydicts(exps) # create mesh
+            "method":["burst"],"nreps":[2]} # "numba",
+    experiments = cache_io.mesh_pydicts(exps) # create mesh
 
 
     # -- (3) [Execute or Load] each Experiment --
