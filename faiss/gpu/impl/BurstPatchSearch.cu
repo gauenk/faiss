@@ -34,7 +34,7 @@ __global__ void burstPatchSearchKernel(
     int queryStart, int queryStride,
 	Tensor<float, 2, true, int> vals,
 	Tensor<int, 2, true, int> inds,
-    int spaceStartInput, int ps, int pt, int ws, int wf, int wb){
+    int spaceStartInput, int ps, int pt, int ws, int wf, int wb, float bmax){
     extern __shared__ char smemByte[]; // #warps * BatchQueries * BatchSearch * nelements
     float* smem = (float*)smemByte;
 
@@ -218,6 +218,7 @@ __global__ void burstPatchSearchKernel(
             T ref_val = burst[r_frame][ftr][r_row][r_col];
             T tgt_val = f_legal ? burst[p_frame][ftr][p_row][p_col] : (T)0;
             T diff = Math<T>::sub(ref_val,tgt_val);
+            diff = Math<T>::mul(diff,1./bmax);
             diff = Math<T>::mul(diff,diff);
             diff = f_legal ? diff : (T)1e5;
             diff = slegal ? diff : (T)0.;
@@ -297,8 +298,8 @@ void runBurstNnfL2Norm(Tensor<T, 4, true>& burst,
                        int queryStart, int queryStride,
                        Tensor<float, 2, true>& vals,
                        Tensor<int, 2, true>& inds,
-                       int start, int numSearch,
-                       int ps, int pt, int ws, int wf, int wb,
+                       int start, int numSearch, int ps, int pt,
+                       int ws, int wf, int wb, float bmax,
                        cudaStream_t stream){
 
   int maxThreads = (int)getMaxThreadsCurrentDevice();
@@ -311,11 +312,11 @@ void runBurstNnfL2Norm(Tensor<T, 4, true>& burst,
          if (normLoop) {                                                       \
          burstPatchSearchKernel<TYPE_T,batchQueries,batchSpace,true>  \
            <<<grid, block, smem, stream>>>(burst, fflow, bflow, queryStart, queryStride, \
-                   vals, inds, start, ps, pt ,ws ,wf, wb);                        \
+                  vals, inds, start, ps, pt ,ws ,wf, wb, bmax); \
          } else {                                                              \
          burstPatchSearchKernel<TYPE_T,batchQueries,batchSpace,false>  \
            <<<grid, block, smem, stream>>>(burst, fflow, bflow, queryStart, queryStride, \
-                   vals, inds, start, ps, pt ,ws ,wf, wb);                        \
+                  vals, inds, start, ps, pt ,ws ,wf, wb, bmax); \
          }                                                                     \
      } while (0)
 
@@ -351,7 +352,7 @@ void runBurstNnfL2Norm(Tensor<T, 4, true>& burst,
 //     int nBlocks = utils::divUp(numToComp,numToCompPerKernel);
 
     // get grids and threads 
-    int numQueryBlocks = numQueries / batchQueries;
+    int numQueryBlocks = ((numQueries-1) / batchQueries)+1;
     // fprintf(stdout,"numQueries,numSearch: (%d,%d)\n",numQueries,numSearch);
     // fprintf(stdout,"numQueryBlocks: %d\n",numQueryBlocks);
     auto grid = dim3(numQueryBlocks,numSearch);
@@ -381,10 +382,11 @@ void runBurstNnfL2Norm(Tensor<float, 4, true>& burst,
                        Tensor<int, 2, true>& inds,
                        int srch_start, int numSearch,
                        int ps, int pt, int ws, int wf, int wb,
+                       float bmax,
                        cudaStream_t stream){
   runBurstNnfL2Norm<float>(burst, fflow, bflow, queryStart, queryStride,
                            vals, inds, srch_start, numSearch,
-                           ps, pt, ws, wf, wb, stream);
+                           ps, pt, ws, wf, wb, bmax, stream);
 }
 
 void runBurstNnfL2Norm(Tensor<half, 4, true>& burst,
@@ -395,10 +397,11 @@ void runBurstNnfL2Norm(Tensor<half, 4, true>& burst,
                        Tensor<int, 2, true>& inds,
                        int srch_start, int numSearch,
                        int ps, int pt, int ws, int wf, int wb,
+                       float bmax,
                        cudaStream_t stream){
   runBurstNnfL2Norm<half>(burst, fflow, bflow, queryStart, queryStride,
                           vals, inds, srch_start, numSearch,
-                          ps, pt, ws, wf, wb, stream);
+                          ps, pt, ws, wf, wb, bmax, stream);
 }
 
 } // namespace gpu

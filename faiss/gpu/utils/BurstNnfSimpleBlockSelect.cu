@@ -70,6 +70,7 @@ namespace faiss {
 
           float outVal_max = outVals[queryIndex][k-1];
           float outVal_curr = outVal_max;
+
           for (int comp = 0; comp < numSearch; ++comp){
 
             float inVal = inVals[queryIndex][comp];
@@ -92,13 +93,40 @@ namespace faiss {
 
               // assign new values
               outVals[queryIndex][kidx] = inVal;
-              outKeys[queryIndex][kidx] = comp;
+              outKeys[queryIndex][kidx] = (int)comp;
               outVal_max = outVals[queryIndex][k-1];
 
-            }
-          
-          }
-        }
+            }          
+          } // for loop over "comp"
+
+
+          // check for any not set
+          // int anyNotSet = k;
+          // for (int kidx = 0; kidx < k; ++kidx){
+          //   if(outKeys[queryIndex][kidx] < 0){
+          //     anyNotSet = (anyNotSet == k) ? kidx : anyNotSet;
+          //   }
+          //   if(outKeys[queryIndex][kidx] >= numSearch){
+          //     anyNotSet = (anyNotSet == k) ? kidx : anyNotSet;
+          //   }
+          // }
+
+          // fill back with last match; anyNotSet > 0
+          // for (int kidx = anyNotSet; kidx < k; ++kidx){
+          //   outVals[queryIndex][kidx] = (float)outVals[queryIndex][anyNotSet-1];
+          //   outKeys[queryIndex][kidx] = (int)outKeys[queryIndex][anyNotSet-1];
+          // }
+
+          // for (int kidx = anyNotSet; kidx < k; ++kidx){
+          //   outKeys[queryIndex][kidx] = (int)outKeys[queryIndex][0];
+          // }
+          // for (int kidx = 0; kidx < k; ++kidx){
+          //   outKeys[queryIndex][kidx] = 0;
+          // }
+
+
+
+        } // if (legal)
       }
     }
     
@@ -118,6 +146,7 @@ namespace faiss {
       int numQueries = inVals.getSize(0);
       int numSearch = inVals.getSize(1);
       int k = outVals.getSize(1);
+      // fprintf(stdout,"numSearch: %d\n",numSearch);
       
       // create num of block x threads
       int numQueryExecs = (numQueries-1) / batchQueries + 1;

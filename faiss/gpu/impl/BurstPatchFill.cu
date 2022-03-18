@@ -33,7 +33,7 @@ __global__ void burstPatchFillKernel(
 	Tensor<int, 2, true, int> inds,
     int queryStart, int queryStride,
     int ws, int wb, int wf,
-    int dimPerThread, int queriesPerBlock){
+    int dimPerThread, int numPerQuery, int queriesPerBlock){
 
     // get the cuda vars 
     int numWarps = utils::divUp(blockDim.x, kWarpSize); 
@@ -66,13 +66,16 @@ __global__ void burstPatchFillKernel(
           // [Query Index]
           int queryIndex = (queryIndexStart + qidx + qpb);
           int queryPix = queryStride*(queryIndex + queryStart);
-          if (queryIndex < numQueries){
+
+          // [Patch Index]
+          int pindex = dimPerThread * threadIdx.x + d_index;
+
+          if ((queryIndex < numQueries) && (pindex < numPerQuery)){
     
               //
               // [Patch] Indices
               //
-    
-              int pindex = dimPerThread * threadIdx.x + d_index;
+
               int denom = 1;
               int kIndex = (pindex) % k;
               denom = k;
@@ -90,8 +93,8 @@ __global__ void burstPatchFillKernel(
               int r_frame = queryPix / npix;
               int r_query_row = (queryPix % npix) / width;
               int r_query_col = (queryPix % npix) % width;
-              int r_rowTop = r_query_row - ps/2;
-              int r_colLeft = r_query_col - ps/2;
+              int r_rowTop = r_query_row - (ps/2);
+              int r_colLeft = r_query_col - (ps/2);
     
               // Frame Offsets
               int shift_t_min = inline_min(0,r_frame - wb);
@@ -122,17 +125,19 @@ __global__ void burstPatchFillKernel(
               b_wIndex = (b_wIndex < width) ? b_wIndex : (2*width - b_wIndex - 1);
               b_hIndex = (b_hIndex >= 0) ? b_hIndex : (-b_hIndex-1);
               b_wIndex = (b_wIndex >= 0) ? b_wIndex : (-b_wIndex-1);
-    
+              // printf("b_hIndex,b_wIndex: %d,%d\n",b_hIndex,b_wIndex);
+
               // [Fill] Patches with "val"
     
+              T val = burst[tIndex][cIndex][b_hIndex][b_wIndex];
               // T val = burst[0][0][0][0];
               // T val = burst[tIndex][cIndex][0][0];
               // T val = burst[0][cIndex][b_hIndex][b_wIndex];
-              T val = burst[tIndex][cIndex][b_hIndex][b_wIndex];
+              // T val = burst[0][0][b_hIndex][b_wIndex];
               // T val = threadId * 1.0;
               // T val = (T)pindex;
-              // patches[queryIndex][kIndex][ptIndex][cIndex][hIndex][wIndex] = val;
               patches[queryIndex][kIndex][ptIndex][cIndex][hIndex][wIndex] = val;
+              // patches[queryIndex][kIndex][ptIndex][cIndex][hIndex][wIndex]=spaceIndex;
           }
         }
       }
@@ -148,7 +153,7 @@ void fillBurstPatches(Tensor<T, 4, true>& burst,
                       cudaStream_t stream){
 
   // batching 
-  constexpr int batchQueries = 4;
+  constexpr int batchQueries = 8;
 
   // unpack shapes 
   int maxThreads = (int)getMaxThreadsCurrentDevice();
@@ -158,11 +163,13 @@ void fillBurstPatches(Tensor<T, 4, true>& burst,
   int c = burst.getSize(1);
 
   // compute num threads
-  int dimPerThread = ps; // how much does each thread handle
-  int threadsPerPatch = c*ps; // assuming patchsize_dim = ps*ps; ps*ps / dimPerThread
+  int dimPerThread = ps+1; // how much does each thread handle
+  int threadsPerPatch = c*ps*ps; // assuming patchsize_dim = ps*ps; ps*ps / dimPerThread
   int patchesPerQuery = k;
   int queriesPerBlock = 1;// a function of "k"; smaller "k" -> greater "qpb"
   int numThreads = threadsPerPatch * patchesPerQuery * queriesPerBlock;
+  numThreads = ((numThreads - 1) / dimPerThread) + 1;
+  int numPerQuery = c*ps*ps*k;
 
   // unpack shape of queries
   int nq = patches.getSize(0);
@@ -171,19 +178,27 @@ void fillBurstPatches(Tensor<T, 4, true>& burst,
   int pc = patches.getSize(3);
   int ps1 = patches.getSize(4);
   int ps2 = patches.getSize(5);
-  fprintf(stdout,"pshape = (%d,%d,%d,%d,%d,%d)\n",nq,pk,pt,pc,ps1,ps2);
+  // fprintf(stdout,"pshape = (%d,%d,%d,%d,%d,%d)\n",nq,pk,pt,pc,ps1,ps2);
+
+  int height = burst.getSize(2);
+  int width = burst.getSize(3);
+  // fprintf(stdout,"bshape = (%d,%d)\n",height,width);
+
 
   // get grids and threads 
   int numQueryBlocks = (numQueries-1) / (batchQueries*queriesPerBlock) + 1;
   auto grid = dim3(numQueryBlocks);
   auto block = dim3(numThreads);
-  fprintf(stdout,"numQueryBlocks,numThreads: %d,%d\n",numQueryBlocks,numThreads);
-  fprintf(stdout,"k,ps: %d,%d\n",k,ps);
+  // fprintf(stdout,"numQueryBlocks,numThreads,maxThreads: %d,%d,%d\n",
+  //         numQueryBlocks,numThreads,maxThreads);
+  // fprintf(stdout,"k,ps: %d,%d\n",k,ps);
+  FAISS_ASSERT(numThreads < maxThreads);
+
 
   burstPatchFillKernel<T,batchQueries>
     <<<grid, block, 0, stream>>>(burst, patches, inds,
                                  queryStart, queryStride,
-                                 ws, wb, wf, dimPerThread, queriesPerBlock);
+                                 ws, wb, wf, dimPerThread, numPerQuery, queriesPerBlock);
     
   CUDA_TEST_ERROR();
 }

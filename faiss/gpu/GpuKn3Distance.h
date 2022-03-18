@@ -24,9 +24,10 @@ class GpuResourcesProvider;
 enum class Kn3FxnName {
     KDIST = 1,
     KPATCHES = 2,
-    FILLOUT = 3,
-    FILLIN = 4,
-    PFILLTEST = 5,
+    PFILL = 3,
+    FILLOUT = 4,
+    FILLIN = 5,
+    PFILLTEST = 6,
 };
 
 /// Arguments to brute-force GPU k-nearest neighbor searching
@@ -45,6 +46,7 @@ struct GpuKn3DistanceParams {
               nframes(0),
               height(0),
               width(0),
+              bmax(0),
               srch_burst(nullptr),
               fill_burst(nullptr),
               patches(nullptr),
@@ -96,6 +98,7 @@ struct GpuKn3DistanceParams {
     const void* fflow;
     const void* bflow;
     int nchnls,nframes,height,width;
+    float bmax;
     DistanceDataType vectorType;
 
     /// Precomputed L2 norms for each vector in `vectors`, which can be

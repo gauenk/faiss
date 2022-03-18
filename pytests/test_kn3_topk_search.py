@@ -65,12 +65,12 @@ class TestTopKSearch(unittest.TestCase):
         flows.bflow = bflow
         return flows
 
-    def get_search_inds(self,index,bsize,shape,device):
+    def get_search_inds(self,index,bsize,stride,shape,device):
         t,c,h,w  = shape
         start = index * bsize
         stop = ( index + 1 ) * bsize
         ti32 = th.int32
-        srch_inds = th.arange(start,stop,dtype=ti32,device=device)[:,None]
+        srch_inds = th.arange(start,stop,stride,dtype=ti32,device=device)[:,None]
         srch_inds = kn3.get_3d_inds(srch_inds,h,w)
         srch_inds = srch_inds.contiguous()
         return srch_inds
@@ -82,6 +82,29 @@ class TestTopKSearch(unittest.TestCase):
         return vals,inds
 
     def exec_vpss_search(self,K,clean,flows,sigma,args):
+        vpss_mode = args['vpss_mode']
+        if vpss_mode == "exh":
+            return self.exec_vpss_search_exh(K,clean,flows,sigma,args)
+        elif vpss_mode == "vnlb":
+            return self.exec_vpss_search_vnlb(K,clean,flows,sigma,args)
+        else:
+            raise ValueError(f"Uknown vpss_mode [{vpss_mode}]")
+
+    def exec_vpss_search_vnlb(self,K,clean,flows,sigma,args):
+
+        # -- vnlb --
+        bufs = vnlb.global_search_default(clean,sigma,None,args.ps,K,pfill=True)
+        vpss_patches = bufs.patches
+
+        # -- return --
+        th.cuda.synchronize()
+
+        # -- weight floating-point issue --
+        vpss_patches = vpss_patches.type(th.float32)
+
+        return vpss_patches
+
+    def exec_vpss_search_exh(self,K,clean,flows,sigma,args):
 
         # -- unpack --
         device = clean.device
@@ -89,18 +112,25 @@ class TestTopKSearch(unittest.TestCase):
         t,c,h,w = shape
 
         # -- get search inds --
-        index,BSIZE = 0,t*h*w
-        srch_inds = self.get_search_inds(index,BSIZE,shape,device)
+        index,BSIZE,stride = 0,t*h*w,args.bstride
+        srch_inds = self.get_search_inds(index,BSIZE,stride,shape,device)
         srch_inds = srch_inds.type(th.int32)
 
         # -- get return shells --
-        vpss_vals,vpss_inds = self.init_topk_shells(BSIZE,K,device)
+        numQueries = ((BSIZE - 1)//args.bstride)+1
+        pt,c,ps = args.pt,args.c,args.ps
+        vpss_vals,vpss_inds = self.init_topk_shells(numQueries,K,device)
 
         # -- search using numba code --
-        vpss.exec_sim_search_burst(clean,srch_inds,vpss_vals,
-                                   vpss_inds,flows,sigma,args)
+        vpss.exec_sim_search_burst(clean,srch_inds,vpss_vals,vpss_inds,flows,sigma,args)
+
+        # # -- fill patches --
+        # vpss.get_patches_burst(clean,vpss_inds,ps,pt=pt,patches=None,fill_mode="faiss")
+
+        # -- return --
         th.cuda.synchronize()
-        return vpss_vals,vpss_inds
+
+        return vpss_vals,vpss_inds,srch_inds
 
     def exec_kn3_search(self,K,clean,flows,sigma,args,bufs):
 
@@ -109,17 +139,16 @@ class TestTopKSearch(unittest.TestCase):
         shape = clean.shape
         t,c,h,w = shape
 
-        # -- get search inds --
+        # -- init inputs --
         index,BSIZE = 0,t*h*w
-
-        # -- get return shells --
-        kn3_vals,kn3_inds = self.init_topk_shells(BSIZE,K,device)
-        bufs.dists = kn3_vals
-        bufs.inds = kn3_inds
+        args.k = K
 
         # -- search --
-        kn3.run_search(clean/255.,0,BSIZE,flows,sigma/255.,args,bufs)
+        kn3.run_search(clean,0,BSIZE,flows,sigma,args,bufs)
         th.cuda.synchronize()
+
+        kn3_vals = bufs.dists
+        kn3_inds = bufs.inds
 
         return kn3_vals,kn3_inds
 
@@ -136,21 +165,31 @@ class TestTopKSearch(unittest.TestCase):
         NBATCHES = 3
         shape = noisy.shape
         device = noisy.device
+        t,c,h,w = noisy.shape
+        npix = h*w
 
         # -- create empty bufs --
         bufs = edict()
         bufs.patches = None
         bufs.dists = None
         bufs.inds = None
-        clean = 255.*th.rand_like(clean).type(th.float32)
-        noisy = 255.*th.rand_like(clean).type(th.float32)
+
+        # -- final args --
+        args.c = c
         args['stype'] = "faiss"
+        # args['vpss_mode'] = "exh"
+        args['queryStride'] = 7
+        args['bstride'] = args['queryStride']
+        args['vpss_mode'] = "vnlb"
 
         # -- exec over batches --
         for index in range(NBATCHES):
 
+            # -- new image --
+            clean = 255.*th.rand_like(clean).type(th.float32)
+
             # -- search using python code --
-            vpss_vals,vpss_inds = self.exec_vpss_search(K,clean,flows,sigma,args)
+            vpss_vals,vpss_inds,srch_inds = self.exec_vpss_search(K,clean,flows,sigma,args)
 
             # -- search using faiss code --
             kn3_vals,kn3_inds = self.exec_kn3_search(K,clean,flows,sigma,args,bufs)
@@ -158,6 +197,22 @@ class TestTopKSearch(unittest.TestCase):
             # -- to numpy --
             vpss_vals = vpss_vals.cpu().numpy()
             kn3_vals = kn3_vals.cpu().numpy()
+
+
+            neq = np.where(np.abs(kn3_vals - vpss_vals)>1)
+            if len(neq[0]) > 0:
+                bidx = neq[0][0]
+                print(bidx)
+                print(srch_inds.shape)
+                print(vpss_vals.shape)
+                print(srch_inds[-3:])
+                print(srch_inds[bidx])
+                bt,bh,bw = (bidx // npix),(bidx // npix)//w,(bidx // npix)%w
+                print(bt,bh,bw)
+                print(neq)
+                print(kn3_vals[neq])
+                print(vpss_vals[neq])
+                print(vpss_inds[bidx,0])
 
             # -- allow for swapping of "close" values --
             np.testing.assert_array_almost_equal(kn3_vals,vpss_vals)

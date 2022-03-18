@@ -34,18 +34,18 @@ namespace gpu {
 
 template <typename T>
 void runKn3TopPatches(GpuResources* res,cudaStream_t stream,
-                    int ps, int pt, int wf, int wb, int ws,
-                    int queryStart, int queryStride,
-                    Tensor<T, 4, true>& srch_burst,
-                    Tensor<T, 6, true>& patches,
-                    Tensor<T, 4, true>& fflow,
-                    Tensor<T, 4, true>& bflow,
-                    Tensor<float, 2, true>& outDistances,
-                    Tensor<int, 2, true>& outIndices) {
+                      int ps, int pt, int wf, int wb, int ws,
+                      int queryStart, int queryStride, float bmax,
+                      Tensor<T, 4, true>& srch_burst,
+                      Tensor<T, 6, true>& patches,
+                      Tensor<T, 4, true>& fflow,
+                      Tensor<T, 4, true>& bflow,
+                      Tensor<float, 2, true>& outDistances,
+                      Tensor<int, 2, true>& outIndices) {
 
     // The size of the image burst
-    auto nchnls = srch_burst.getSize(0);
-    auto nframes = srch_burst.getSize(1);
+    auto nframes = srch_burst.getSize(0);
+    auto nchnls = srch_burst.getSize(1);
     auto height = srch_burst.getSize(2);
     auto width = srch_burst.getSize(3);
 
@@ -64,18 +64,18 @@ void runKn3TopPatches(GpuResources* res,cudaStream_t stream,
     FAISS_ASSERT(outIndices.getSize(0) == numQueries);
 
     // If we're querying against a 0 sized set, just return empty results
-    // thrust::fill(thrust::cuda::par.on(stream),
-    //              outDistances.data(),
-    //              outDistances.end(),
-    //              Limits<float>::getMax());
-    // thrust::fill(thrust::cuda::par.on(stream),
-    //              outIndices.data(),
-    //              outIndices.end(),-1);
+    thrust::fill(thrust::cuda::par.on(stream),
+                 outDistances.data(),
+                 outDistances.end(),
+                 Limits<float>::getMax());
+    thrust::fill(thrust::cuda::par.on(stream),
+                 outIndices.data(),
+                 outIndices.end(),-1);
 
     // By default, aim to use up to 512 MB of memory for the processing, with
     // both number of queries and number of centroids being at least 512.
     int numSearch = ws*ws;
-    int timeWindowSize = wf*wb+1;
+    int timeWindowSize = wf+wb+1;
     int tileQueries,tileSearch;
     // chooseKn3TileSize(numQueries,numSearch,sizeof(T),tileQueries,tileSearch);
     tileQueries = 4096;
@@ -86,6 +86,7 @@ void runKn3TopPatches(GpuResources* res,cudaStream_t stream,
     // fprintf(stdout,"numQueries,numSearch: %d,%d\n",numQueries,numSearch);
     // fprintf(stdout,"tileQueries,tileSearch: %d,%d\n",tileQueries,tileSearch);
     // fprintf(stdout,"numQueryTiles,numSearchTiles: %d,%d\n",numQueryTiles,numSearchTiles);
+    // fprintf(stdout,"ws,wf,wb: %d,%d,%d\n",ws,wf,wb);
 
     //
     // --> Allocate a frame offsets <--
@@ -204,7 +205,7 @@ void runKn3TopPatches(GpuResources* res,cudaStream_t stream,
               runBurstNnfL2Norm(srch_burst,fflow,bflow,
                                 queryStart_i,queryStride,
                                 distanceBufView,outIndexView,
-                                j,curSearchSize,ps,pt,ws,wf,wb,stream);
+                                j,curSearchSize,ps,pt,ws,wf,wb,bmax,stream);
 
               runBurstNnfSimpleBlockSelect(distanceBufView,
                                            outDistanceView,
@@ -239,7 +240,7 @@ void runKn3TopPatches(GpuResources* res,cudaStream_t stream,
 void runKn3TopPatches(
         GpuResources* res, cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
-        int queryStart, int queryStride,
+        int queryStart, int queryStride, float bmax,
         Tensor<float, 4, true>& srch_burst,
         Tensor<float, 6, true>& patches,
         Tensor<float, 4, true>& fflow,
@@ -247,28 +248,27 @@ void runKn3TopPatches(
         Tensor<float, 2, true>& outDistances,
         Tensor<int, 2, true>& outIndices){
     runKn3TopPatches<float>(res,stream,
-                         ps,pt,wf,wb,ws,
-                         queryStart,queryStride,
-                         srch_burst,patches,fflow,bflow,
-                         outDistances,outIndices);
+                            ps,pt,wf,wb,ws,
+                            queryStart,queryStride,bmax,
+                            srch_burst,patches,fflow,bflow,
+                            outDistances,outIndices);
 }
 
 void runKn3TopPatches(
         GpuResources* res, cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
-        int queryStart, int queryStride,
+        int queryStart, int queryStride, float bmax,
         Tensor<half, 4, true>& srch_burst,
         Tensor<half, 6, true>& patches,
         Tensor<half, 4, true>& fflow,
         Tensor<half, 4, true>& bflow,
         Tensor<float, 2, true>& outDistances,
         Tensor<int, 2, true>& outIndices) {
-    runKn3TopPatches<half>(
-            res,stream,
-            ps,pt,wf,wb,ws,
-            queryStart,queryStride,
-            srch_burst,patches,fflow,bflow,
-            outDistances,outIndices);
+  runKn3TopPatches<half>(res,stream,
+                         ps,pt,wf,wb,ws,
+                         queryStart,queryStride,bmax,
+                         srch_burst,patches,fflow,bflow,
+                         outDistances,outIndices);
 }
 
 } // namespace gpu

@@ -18,52 +18,42 @@ class GpuResources;
 
 /// Calculates brute-force L2 distance between `vectors` and
 /// `queries`, returning the k closest results seen
-void runKn3TopPatches(
+void runKn3FillPatches(
         GpuResources* resources,
         cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
-        int queryStart, int queryStride, float bmax,
+        int queryStart, int queryStride,
         Tensor<float, 4, true>& srch_burst,
-        Tensor<float, 6, true>& patches,
-        Tensor<float, 4, true>& fflow,
-        Tensor<float, 4, true>& bflow,
-        Tensor<float, 2, true>& outDistances,
-        Tensor<int, 2, true>& outIndices);
+        Tensor<float, 6, true>& patches);
 
-void runKn3TopPatches(
+void runKn3FillPatches(
         GpuResources* resources,
         cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
-        int queryStart, int queryStride, float bmax,
+        int queryStart, int queryStride,
         Tensor<half, 4, true>& srch_burst,
-        Tensor<half, 6, true>& patches,
-        Tensor<half, 4, true>& fflow,
-        Tensor<half, 4, true>& bflow,
-        Tensor<float, 2, true>& outDistances,
-        Tensor<int, 2, true>& outIndices);
+        Tensor<half, 6, true>& patches);
 
 
 template <typename T>
-void bfKn3TopPatches(
+void bfKn3FillPatches(
         GpuResources* resources,
         int device,
         cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
-        int queryStart, int queryStride, float bmax,
+        int queryStart, int queryStride,
         Tensor<T, 4, true>& srch_burst,
-        Tensor<T, 6, true>& patches,
-        Tensor<T, 4, true>& fflow,
-        Tensor<T, 4, true>& bflow,
-        Tensor<float, 2, true>& outDistances,
-        Tensor<int, 2, true>& outIndices){
+        Tensor<T, 6, true>& patches){
     DeviceScope ds(device);
     // L2 and IP are specialized to use GEMM and an optimized L2 + selection or
     // pure k-selection kernel.
-    runKn3TopPatches(resources,stream,
-                     ps,pt,wf,wb,ws,
-                     queryStart,queryStride,bmax,
-                     srch_burst,patches,fflow,bflow,
-                     outDistances,outIndices);
+    runKn3FillPatches(resources,
+                      stream,
+                      ps,pt,wf,wb,ws,
+                      queryStart,queryStride,
+                      srch_burst,
+                      patches);
+
 }
 
 }

@@ -59,7 +59,7 @@ def exec_pm_faiss_burst_eccv2022(clock,burst,ps=7,subsize=100):
     args.queryStride = 3
     args.ws = 2
     BSIZE = (npix-1)//args.queryStride + 1
-    kn3.run_search(burst/255.,0,BSIZE,flows,sigma/255.,args,bufs)
+    kn3.run_search(burst,0,BSIZE,flows,sigma,args,bufs)
     th.cuda.synchronize()
     clock.toc()
 
@@ -71,7 +71,7 @@ def exec_pm_faiss_burst_eccv2022(clock,burst,ps=7,subsize=100):
 
 def exec_pm_numba(clock,burst,ps=7,subsize=100):
     clock.tic()
-    vnlb.global_search_default(burst,0.,clock,ps,subsize)
+    vnlb.global_search_default(burst,0.,clock,ps,subsize,pfill=False)
     th.cuda.synchronize()
     clock.toc()
 
@@ -106,6 +106,8 @@ def exec_pm_faiss_burst(clock,burst,ps=7,subsize=100):
 def pm_select(method):
     if method == "tiling":
         time_fxn = exec_pm_faiss_tiling
+    elif method == "tiling_eccv2022":
+        time_fxn = exec_pm_faiss_tiling_eccv2022
     elif method == "burst":
         time_fxn = exec_pm_faiss_burst
     elif method == "burst_eccv2022":
@@ -160,11 +162,11 @@ def main():
     cache_dir = ".cache_io"
     cache_name = "topk_search"
     cache = cache_io.ExpCache(cache_dir,cache_name)
-    cache.clear()
+    # cache.clear()
 
     # -- (2) create experiments --
     exps = {"t":[5],"hw":[64,128,256],"ps":[7],"subsize":[50],
-            "method":["burst_eccv2022","burst","numba"],"nreps":[2]} # "numba",
+            "method":["tiling_eccv2022","burst_eccv2022","burst","numba"],"nreps":[2]} # "numba",
     experiments = cache_io.mesh_pydicts(exps) # create mesh
 
     # -- (3) [Execute or Load] each Experiment --

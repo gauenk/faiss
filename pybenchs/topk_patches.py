@@ -59,8 +59,7 @@ def exec_pm_faiss_burst_eccv2022(clock,burst,ps=7,subsize=100):
     args.queryStride = 3
     args.ws = 2
     BSIZE = (npix-1)//args.queryStride + 1
-    kn3.run_search(burst/255.,0,BSIZE,flows,sigma/255.,args,bufs,pfill=True)
-    th.cuda.synchronize()
+    bufs = kn3.run_search(burst,0,BSIZE,flows,sigma/255.,args,bufs,pfill=True)
     clock.toc()
 
 # ---------------------------
@@ -71,7 +70,7 @@ def exec_pm_faiss_burst_eccv2022(clock,burst,ps=7,subsize=100):
 
 def exec_pm_numba(clock,burst,ps=7,subsize=100):
     clock.tic()
-    vnlb.global_search_default(burst,0.,clock,ps,subsize)
+    vnlb.global_search_default(burst,0.,clock,ps,subsize,pfill=True)
     th.cuda.synchronize()
     clock.toc()
 
@@ -99,7 +98,8 @@ def exec_pm_faiss_burst(clock,burst,ps=7,subsize=100):
     args.wb = 6
     args.ws = 10
     BSIZE = (npix-1)//args.queryStride + 1
-    kn3.run_search(burst/255.,0,BSIZE,flows,sigma/255.,args,bufs,pfill=True)
+    bufs = kn3.run_search(burst,0,BSIZE,flows,sigma,args,bufs,pfill=True)
+    print("bufs.patches.shape: ",bufs.patches.shape)
     th.cuda.synchronize()
     clock.toc()
 
@@ -163,7 +163,7 @@ def main():
     cache.clear()
 
     # -- (2) create experiments --
-    exps = {"t":[5],"hw":[64],"ps":[7],"subsize":[50],
+    exps = {"t":[10],"hw":[64,128,512],"ps":[7],"subsize":[3],
             "method":["burst"],"nreps":[2]} # "numba",
     experiments = cache_io.mesh_pydicts(exps) # create mesh
 

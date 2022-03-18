@@ -70,7 +70,7 @@ class TestTopKPatches(unittest.TestCase):
         start = index * bsize
         stop = ( index + 1 ) * bsize
         ti32 = th.int32
-        srch_inds = th.arange(start,stop,dtype=ti32,device=device)[:,None]
+        srch_inds = th.arange(start,stop,bstride,dtype=ti32,device=device)[:,None]
         srch_inds = kn3.get_3d_inds(srch_inds,h,w)
         srch_inds = srch_inds.contiguous()
         return srch_inds
@@ -83,6 +83,29 @@ class TestTopKPatches(unittest.TestCase):
         return vals,inds,patches
 
     def exec_vpss_search(self,K,clean,flows,sigma,args):
+        vpss_mode = args['vpss_mode']
+        if vpss_mode == "exh":
+            return self.exec_vpss_search_exh(K,clean,flows,sigma,args)
+        elif vpss_mode == "vnlb":
+            return self.exec_vpss_search_vnlb(K,clean,flows,sigma,args)
+        else:
+            raise ValueError(f"Uknown vpss_mode [{vpss_mode}]")
+
+    def exec_vpss_search_vnlb(self,K,clean,flows,sigma,args):
+
+        # -- vnlb --
+        bufs = vnlb.global_search_default(clean,sigma,None,args.ps,K,pfill=True)
+        vpss_patches = bufs.patches
+
+        # -- return --
+        th.cuda.synchronize()
+
+        # -- weight floating-point issue --
+        vpss_patches = vpss_patches.type(th.float32)
+
+        return vpss_patches
+
+    def exec_vpss_search_exh(self,K,clean,flows,sigma,args):
 
         # -- unpack --
         device = clean.device
@@ -90,8 +113,8 @@ class TestTopKPatches(unittest.TestCase):
         t,c,h,w = shape
 
         # -- get search inds --
-        index,BSIZE = 0,t*h*w
-        srch_inds = self.get_search_inds(index,BSIZE,shape,device)
+        index,BSIZE,stride = 0,t*h*w,args.bstride
+        srch_inds = self.get_search_inds(index,BSIZE,stride,shape,device)
         srch_inds = srch_inds.type(th.int32)
 
         # -- get return shells --
@@ -111,8 +134,6 @@ class TestTopKPatches(unittest.TestCase):
 
         # -- weight floating-point issue --
         vpss_patches = vpss_patches.type(th.float32)
-        vpss_patches /= 255.
-        vpss_patches *= 255.
 
         return vpss_patches
 
@@ -136,10 +157,10 @@ class TestTopKPatches(unittest.TestCase):
         bufs.patches = kn3_patches
 
         # -- search --
-        kn3.run_search(clean/255.,0,BSIZE,flows,sigma/255.,args,bufs,pfill=True)
+        kn3.run_search(clean,0,BSIZE,flows,sigma,args,bufs,pfill=True)
         th.cuda.synchronize()
 
-        return kn3_patches*255.
+        return kn3_patches
 
 
     #
@@ -151,23 +172,33 @@ class TestTopKPatches(unittest.TestCase):
         # -- fixed testing params --
         K = 15
         BSIZE = 50
-        NBATCHES = 3
+        NBATCHES = 1
         shape = noisy.shape
         device = noisy.device
+        t,c,h,w = shape
+        npix = h*w
+        bstride = 1
 
         # -- create empty bufs --
         bufs = edict()
         bufs.patches = None
         bufs.dists = None
         bufs.inds = None
-        clean = 255.*th.rand_like(clean).type(th.float32)
-        clean /= 255.
-        clean *= 255.
-        noisy = clean.clone()
         args['stype'] = "faiss"
+        args['queryStride'] = 1
+        args['vpss_mode'] = "exh"
+        # args['queryStride'] = 3
+        # args['bstride'] = args['queryStride']
+        # args['vpss_mode'] = "vnlb"
 
         # -- exec over batches --
         for index in range(NBATCHES):
+
+            # -- get data --
+            clean = 255.*th.rand_like(clean).type(th.float32)
+            # clean /= 255.
+            # clean *= 255.
+            noisy = clean.clone()
 
             # -- search using python code --
             vpss_patches = self.exec_vpss_search(K,clean,flows,sigma,args)
@@ -180,27 +211,27 @@ class TestTopKPatches(unittest.TestCase):
             kn3_patches = kn3_patches.cpu().numpy()
 
             # -- allow for swapping of "close" values --
-            qindex = 3*32*32+32*16+8
-            # print(kn3_patches[qindex,0,0,0])
-            # print(vpss_patches[qindex,0,0,0])
-            np.testing.assert_array_almost_equal(kn3_patches[qindex,0,0,0],vpss_patches[qindex,0,0,0])
-            qindex = 0
-            np.testing.assert_array_almost_equal(kn3_patches[qindex,0,0,0],vpss_patches[qindex,0,0,0])
-            qindex = -1
-            print(kn3_patches[qindex,0,0,:4,:4])
-            print(vpss_patches[qindex,0,0,:4,:4])
-            np.testing.assert_array_almost_equal(kn3_patches[qindex,0,0,0],vpss_patches[qindex,0,0,0])
-            print("PASSED.")
+            # qindex = 3*32*32+32*16+8
+            # # print(kn3_patches[qindex,0,0,0])
+            # # print(vpss_patches[qindex,0,0,0])
+            # np.testing.assert_array_almost_equal(kn3_patches[qindex,0,0,0],vpss_patches[qindex,0,0,0])
+            # qindex = 0
+            # np.testing.assert_array_almost_equal(kn3_patches[qindex,0,0,0],vpss_patches[qindex,0,0,0])
+            # qindex = -1
+            # print(kn3_patches[qindex,0,0,:4,:4])
+            # print(vpss_patches[qindex,0,0,:4,:4])
+            # np.testing.assert_array_almost_equal(kn3_patches[qindex,0,0,0],vpss_patches[qindex,0,0,0])
+            # print("PASSED.")
             neq = np.where(np.abs(kn3_patches - vpss_patches) > 100.)
-            # kn3_patches
-            print(neq)
-            # bidx = neq[0][0]
-            # kidx = neq[1][0]
-            # print(bidx,kidx)
-            # print(kn3_patches[bidx,kidx,0])
-            # print(vpss_patches[bidx,kidx,0])
+            if len(neq[0]) > 0:
+                print(neq)
+                bidx = neq[0][0]
+                kidx = neq[1][0]
+                print(bidx,kidx)
+                bt,bh,bw = (bidx // npix),(bidx // npix)//w,(bidx // npix)%w
+                print(bt,bh,bw)
+                print(np.stack([kn3_patches[bidx,kidx,0],vpss_patches[bidx,kidx,0]]))
             np.testing.assert_array_equal(kn3_patches,vpss_patches)
-            # np.testing.assert_array_almost_equal(kn3_vals,vpss_vals)
 
     def run_single_test(self,dname,sigma,comp_flow,pyargs):
         noisy,clean = self.do_load_data(dname,sigma)

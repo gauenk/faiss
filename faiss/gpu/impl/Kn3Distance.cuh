@@ -22,7 +22,7 @@ void runL2Distance(
         GpuResources* resources,
         cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
-        int queryStart, int queryStride,
+        int queryStart, int queryStride, float bmax,
         Tensor<float, 4, true>& srch_burst,
         Tensor<float, 4, true>& fflow,
         Tensor<float, 4, true>& bflow,
@@ -33,7 +33,7 @@ void runL2Distance(
         GpuResources* resources,
         cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
-        int queryStart, int queryStride,
+        int queryStart, int queryStride, float bmax,
         Tensor<half, 4, true>& srch_burst,
         Tensor<half, 4, true>& fflow,
         Tensor<half, 4, true>& bflow,
@@ -51,7 +51,7 @@ void bfKn3OnDevice(
         int device,
         cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
-        int queryStart, int queryStride,
+        int queryStart, int queryStride, float bmax,
         Tensor<T, 4, true>& srch_burst,
         Tensor<T, 4, true>& fflow,
         Tensor<T, 4, true>& bflow,
@@ -64,11 +64,9 @@ void bfKn3OnDevice(
     runL2Distance(resources,
                   stream,
                   ps,pt,wf,wb,ws,
-                  queryStart,queryStride,
-                  srch_burst,
-                  fflow,bflow,
-                  outDistances,
-                  outIndices);
+                  queryStart,queryStride,bmax,
+                  srch_burst,fflow,bflow,
+                  outDistances,outIndices);
 }
 
 template <typename T>
@@ -77,7 +75,7 @@ void bfKn3FillOnDevice(
         int device,
         cudaStream_t stream,
         int ps, int pt, int wf, int wb, int ws,
-        int queryStart, int queryStride,
+        int queryStart, int queryStride, float bmax,
         Tensor<T, 4, true>& srch_burst,
         Tensor<T, 6, true>& patches,
         Tensor<T, 4, true>& fflow,
@@ -90,7 +88,7 @@ void bfKn3FillOnDevice(
     fprintf(stdout,"This code needs the _fill_ component added.\n");
     runL2Distance(resources,stream,
                   ps,pt,wf,wb,ws,
-                  queryStart,queryStride,
+                  queryStart,queryStride,bmax,
                   srch_burst,
                   fflow,bflow,
                   outDistances,

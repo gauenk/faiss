@@ -13,9 +13,16 @@ from faiss.contrib.torch_utils import *
 #
 # ------------------------------
 
-def get_buf(D,nq,k,device,dtype):
+def get_buf(D,nq,k,device,dtype,ival):
     if D is None:
-        D = th.empty(nq, k, device=device, dtype=dtype)
+        if ival == "inf":
+            D = float("inf") * th.ones(nq, k, device=device, dtype=dtype)
+        elif ival == "neg1":
+            D = -1 * th.ones(nq, k, device=device, dtype=dtype)
+        elif ival == "zero":
+            D = th.zeros(nq, k, device=device, dtype=dtype)
+        else:
+            raise ValueError(f"Uknown ival [{ival}]")
     else:
         assert D.shape == (nq, k)
         # interface takes void*, we need to check this

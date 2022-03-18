@@ -9,8 +9,9 @@
 #include <faiss/gpu/GpuResources.h>
 #include <faiss/gpu/utils/DeviceUtils.h>
 #include <faiss/impl/FaissAssert.h>
-#include <faiss/gpu/impl/Kn3Distance.cuh>
-#include <faiss/gpu/impl/Kn3TopPatches.cuh> // silly header mgnmnt; this must be #2 "cuh".
+#include <faiss/gpu/impl/Kn3Distance.cuh> // sill header mgnmnt; must be #1
+#include <faiss/gpu/impl/Kn3TopPatches.cuh> // silly header mgnmnt; must be #2 "cuh".
+#include <faiss/gpu/impl/Kn3FillPatches.cuh> //silly header mgnmnt; must be #2 "cuh".
 #include <faiss/gpu/utils/ConversionOperators.cuh>
 #include <faiss/gpu/utils/CopyUtils.cuh>
 #include <faiss/gpu/utils/DeviceTensor.cuh>
@@ -29,6 +30,7 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
     FAISS_THROW_IF_NOT_MSG(args.nchnls > 0, "bfKn3: image channels must be > 0");
     FAISS_THROW_IF_NOT_MSG(args.height > 0, "bfKn3: image height must be > 0");
     FAISS_THROW_IF_NOT_MSG(args.width > 0, "bfKn3: image width must be > 0");
+    FAISS_THROW_IF_NOT_MSG(args.bmax > 0, "bfKn3: burst max value must be > 0");
     FAISS_THROW_IF_NOT_MSG(
             args.srch_burst, "bfKn3: vectors must be provided (passed null)");
     FAISS_THROW_IF_NOT_MSG(args.queryStart >= 0, "bfKn3: queryStart must be >= 0");
@@ -61,45 +63,73 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
             stream,
             {args.nframes,args.nchnls,args.height,args.width});
 
-    // Allocate fFlow, bFlow
-    auto fflow = toDeviceTemporary<T, 4>(
-            res,device,
-            const_cast<T*>(reinterpret_cast<const T*>(args.fflow)),
-            stream,
-            {args.nframes,2,args.height,args.width});
-    auto bflow = toDeviceTemporary<T, 4>(
-            res,
-            device,
-            const_cast<T*>(reinterpret_cast<const T*>(args.bflow)),
-            stream,
-            {args.nframes,2,args.height,args.width});
 
-    // Output Distances and Inds
-    auto tOutDistances = toDeviceTemporary<float, 2>(res,
-                                                     device,
-                                                     args.outDistances,
-                                                     stream,
-                                                     {args.numQueries, args.k});
-    auto tOutIntIndices = toDeviceTemporary<int, 2>(res,
-                                                    device,
-                                                    (int*)args.outIndices,
-                                                    stream,
-                                                    {args.numQueries, args.k});
     // Since we've guaranteed that all arguments are
     // on device, call the implementation
 
     if (args.fxn_name == Kn3FxnName::KDIST){
 
-      // Only _Compute_ the Nearest Neighbors (no fill)
-      bfKn3OnDevice<T>(res,device,stream,
-                       args.ps,args.pt,args.wf,args.wb,args.ws,
-                       args.queryStart,args.queryStride,
-                       srch_burst,fflow,bflow,
-                       tOutDistances,tOutIntIndices);
+        // Allocate fFlow, bFlow
+        auto fflow = toDeviceTemporary<T, 4>(
+                res,device,
+                const_cast<T*>(reinterpret_cast<const T*>(args.fflow)),
+                stream,
+                {args.nframes,2,args.height,args.width});
+        auto bflow = toDeviceTemporary<T, 4>(
+                res,
+                device,
+                const_cast<T*>(reinterpret_cast<const T*>(args.bflow)),
+                stream,
+                {args.nframes,2,args.height,args.width});
 
+        // Output Distances and Inds
+        auto tOutDistances = toDeviceTemporary<float, 2>(res,
+                                                         device,
+                                                         args.outDistances,
+                                                         stream,
+                                                         {args.numQueries, args.k});
+        auto tOutIntIndices = toDeviceTemporary<int, 2>(res,
+                                                        device,
+                                                        (int*)args.outIndices,
+                                                        stream,
+                                                        {args.numQueries, args.k});
+    
+
+        // Only _Compute_ the Nearest Neighbors (no fill)
+        bfKn3OnDevice<T>(res,device,stream,
+                         args.ps,args.pt,args.wf,args.wb,args.ws,
+                         args.queryStart,args.queryStride,args.bmax,
+                         srch_burst,fflow,bflow,
+                         tOutDistances,tOutIntIndices);
+  
     }else if (args.fxn_name == Kn3FxnName::KPATCHES){
 
-      auto patches = toDeviceTemporary<T,6>(res,device,
+        // Allocate fFlow, bFlow
+        auto fflow = toDeviceTemporary<T, 4>(
+                res,device,
+                const_cast<T*>(reinterpret_cast<const T*>(args.fflow)),
+                stream,
+                {args.nframes,2,args.height,args.width});
+        auto bflow = toDeviceTemporary<T, 4>(
+                res,
+                device,
+                const_cast<T*>(reinterpret_cast<const T*>(args.bflow)),
+                stream,
+                {args.nframes,2,args.height,args.width});
+
+        // Output Distances and Inds
+        auto tOutDistances = toDeviceTemporary<float, 2>(res,
+                                                         device,
+                                                         args.outDistances,
+                                                         stream,
+                                                         {args.numQueries, args.k});
+        auto tOutIntIndices = toDeviceTemporary<int, 2>(res,
+                                                        device,
+                                                        (int*)args.outIndices,
+                                                        stream,
+                                                        {args.numQueries, args.k});
+
+        auto patches = toDeviceTemporary<T,6>(res,device,
                      const_cast<T*>(reinterpret_cast<const T*>(args.patches)),
                      stream,
                      {args.numQueries,args.k,args.pt,args.nchnls,args.ps,args.ps});
@@ -107,9 +137,22 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
       // Compute Nearest Neighbors AND Fill
       bfKn3TopPatches<T>(res,device,stream,
                          args.ps,args.pt,args.wf,args.wb,args.ws,
-                         args.queryStart,args.queryStride,
+                         args.queryStart,args.queryStride,args.bmax,
                          srch_burst,patches,fflow,bflow,
                          tOutDistances,tOutIntIndices);
+
+    }else if (args.fxn_name == Kn3FxnName::PFILL){
+
+      auto patches = toDeviceTemporary<T,6>(res,device,
+                     const_cast<T*>(reinterpret_cast<const T*>(args.patches)),
+                     stream,
+                     {args.numQueries,args.k,args.pt,args.nchnls,args.ps,args.ps});
+
+      // FILL burst with patches
+      bfKn3FillPatches<T>(res,device,stream,
+                          args.ps,args.pt,args.wf,args.wb,args.ws,
+                          args.queryStart,args.queryStride,
+                          srch_burst,patches);
 
     }else if (args.fxn_name == Kn3FxnName::PFILLTEST){
 
@@ -122,6 +165,7 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
       kn3FillTestPatches<T>(res,device,stream,patches,args.fill_a);
 
     }else if (args.fxn_name == Kn3FxnName::FILLOUT){
+
       // Output Distances and Inds
       auto tOutDistances = toDeviceTemporary<float, 2>(res,
                                                        device,

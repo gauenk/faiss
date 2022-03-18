@@ -19,8 +19,8 @@ void runBurstNnfL2Norm(Tensor<float, 4, true>& burst,
                        int queryStart, int queryStride,
                        Tensor<float, 2, true>& vals,
                        Tensor<int, 2, true>& inds,
-                       int srch_start, int numSearch,
-                       int ps, int pt, int ws, int wf, int wb,
+                       int srch_start, int numSearch, int ps, int pt,
+                       int ws, int wf, int wb, float bmax,
                        cudaStream_t stream);
 
 void runBurstNnfL2Norm(Tensor<half, 4, true>& burst,
@@ -29,8 +29,8 @@ void runBurstNnfL2Norm(Tensor<half, 4, true>& burst,
                        int queryStart, int queryStride,
                        Tensor<float, 2, true>& vals,
                        Tensor<int, 2, true>& inds,
-                       int srch_start, int numSearch,
-                       int ps, int pt, int ws, int wf, int wb,
+                       int srch_start, int numSearch, int ps, int pt,
+                       int ws, int wf, int wb, float bmax,
                        cudaStream_t stream);
 
 } // namespace gpu
