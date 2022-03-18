@@ -65,12 +65,12 @@ class TestTopKPatches(unittest.TestCase):
         flows.bflow = bflow
         return flows
 
-    def get_search_inds(self,index,bsize,shape,device):
+    def get_search_inds(self,index,bsize,stride,shape,device):
         t,c,h,w  = shape
         start = index * bsize
         stop = ( index + 1 ) * bsize
         ti32 = th.int32
-        srch_inds = th.arange(start,stop,bstride,dtype=ti32,device=device)[:,None]
+        srch_inds = th.arange(start,stop,stride,dtype=ti32,device=device)[:,None]
         srch_inds = kn3.get_3d_inds(srch_inds,h,w)
         srch_inds = srch_inds.contiguous()
         return srch_inds
@@ -118,8 +118,9 @@ class TestTopKPatches(unittest.TestCase):
         srch_inds = srch_inds.type(th.int32)
 
         # -- get return shells --
-        pt,c,ps = args.pt,args.c,args.ps
-        vpss_vals,vpss_inds,vpss_patches = self.init_topk_shells(BSIZE,K,pt,c,ps,device)
+        numQueries = ((BSIZE - 1)//args.bstride)+1
+        nq,pt,c,ps = numQueries,args.pt,args.c,args.ps
+        vpss_vals,vpss_inds,vpss_patches = self.init_topk_shells(nq,K,pt,c,ps,device)
 
         # -- search using numba code --
         vpss.exec_sim_search_burst(clean,srch_inds,vpss_vals,
@@ -144,21 +145,17 @@ class TestTopKPatches(unittest.TestCase):
         shape = clean.shape
         t,c,h,w = shape
 
-        # -- get search inds --
+        # -- prepare kn3 search  --
         index,BSIZE = 0,t*h*w
-
-        # -- get return shells --
-        pt,c,ps = args.pt,args.c,args.ps
-        kn3_vals,kn3_inds,kn3_patches = self.init_topk_shells(BSIZE,K,pt,c,ps,device)
-
-        # -- unpack --
-        bufs.dists = kn3_vals
-        bufs.inds = kn3_inds
-        bufs.patches = kn3_patches
-
+        args.k = K
         # -- search --
         kn3.run_search(clean,0,BSIZE,flows,sigma,args,bufs,pfill=True)
         th.cuda.synchronize()
+
+        # -- unpack --
+        kn3_vals = bufs.dists
+        kn3_inds = bufs.inds
+        kn3_patches = bufs.patches
 
         return kn3_patches
 
@@ -172,7 +169,7 @@ class TestTopKPatches(unittest.TestCase):
         # -- fixed testing params --
         K = 15
         BSIZE = 50
-        NBATCHES = 1
+        NBATCHES = 3
         shape = noisy.shape
         device = noisy.device
         t,c,h,w = shape
@@ -185,10 +182,9 @@ class TestTopKPatches(unittest.TestCase):
         bufs.dists = None
         bufs.inds = None
         args['stype'] = "faiss"
-        args['queryStride'] = 1
         args['vpss_mode'] = "exh"
-        # args['queryStride'] = 3
-        # args['bstride'] = args['queryStride']
+        args['queryStride'] = 7
+        args['bstride'] = args['queryStride']
         # args['vpss_mode'] = "vnlb"
 
         # -- exec over batches --

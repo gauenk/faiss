@@ -177,10 +177,10 @@ class TestTopKSearch(unittest.TestCase):
         # -- final args --
         args.c = c
         args['stype'] = "faiss"
-        # args['vpss_mode'] = "exh"
+        args['vpss_mode'] = "exh"
         args['queryStride'] = 7
         args['bstride'] = args['queryStride']
-        args['vpss_mode'] = "vnlb"
+        # args['vpss_mode'] = "vnlb"
 
         # -- exec over batches --
         for index in range(NBATCHES):

@@ -105,24 +105,20 @@ class TestIoPatches(unittest.TestCase):
         shape = clean.shape
         t,c,h,w = shape
 
-        # -- get search inds --
+        # -- prepare kn3 search  --
         index,BSIZE = 0,t*h*w
-
-        # -- get return shells --
-        pt,c,ps = args.pt,args.c,args.ps
-        kn3_vals,kn3_inds,kn3_patches = self.init_topk_shells(BSIZE,K,pt,c,ps,device)
-
-        # -- unpack --
-        bufs.dists = kn3_vals
-        bufs.inds = kn3_inds
-        bufs.patches = kn3_patches
+        args.k = K
 
         # -- search --
         kn3.run_search(clean,0,BSIZE,flows,sigma,args,bufs,pfill=True)
         th.cuda.synchronize()
 
-        return kn3_patches
+        # -- unpack --
+        kn3_vals = bufs.dists
+        kn3_inds = bufs.inds
+        kn3_patches = bufs.patches
 
+        return kn3_patches
 
     def exec_kn3_fill(self,fill_img,patches,args):
         kn3.run_fill(fill_img,patches,0,args,clock=None)
@@ -147,6 +143,7 @@ class TestIoPatches(unittest.TestCase):
         bufs.inds = None
         clean /= 255.
         clean *= 255.
+        args['queryStride'] = 7
         args['stype'] = "faiss"
 
         # -- exec over batches --
