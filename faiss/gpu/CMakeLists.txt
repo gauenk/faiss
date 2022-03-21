@@ -26,10 +26,10 @@ set(FAISS_GPU_SRC
   impl/Distance.cu
   impl/Kn3Distance.cu
   impl/Kn3TopPatches.cu
-  impl/Kn3FillPatches.cu
+  impl/Kn3Fill.cu
   impl/BurstPatchSearch.cu
-  impl/BurstPatchFill.cu
-  impl/PatchesFillBurst.cu
+  impl/FillPatches2Burst.cu
+  impl/FillBurst2Patches.cu
   impl/FlatIndex.cu
   impl/IVFAppend.cu
   impl/IVFBase.cu
@@ -109,10 +109,10 @@ set(FAISS_GPU_HEADERS
   impl/Distance.cuh
   impl/Kn3Distance.cuh
   impl/Kn3TopPatches.cuh
-  impl/Kn3FillPatches.cuh
+  impl/Kn3Fill.cuh
   impl/BurstPatchSearch.cuh
-  impl/BurstPatchFill.cuh
-  impl/PatchesFillBurst.cuh
+  impl/FillPatches2Burst.cuh
+  impl/FillBurst2Patches.cuh
   impl/DistanceUtils.cuh
   impl/FlatIndex.cuh
   impl/GeneralDistance.cuh

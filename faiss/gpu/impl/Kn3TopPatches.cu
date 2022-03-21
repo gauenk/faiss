@@ -12,7 +12,7 @@
 #include <faiss/gpu/impl/BroadcastSum.cuh>
 #include <faiss/gpu/impl/Kn3TopPatches.cuh>
 #include <faiss/gpu/impl/BurstPatchSearch.cuh>
-#include <faiss/gpu/impl/BurstPatchFill.cuh>
+#include <faiss/gpu/impl/FillBurst2Patches.cuh>
 #include <faiss/gpu/impl/DistanceUtils.cuh>
 #include <faiss/gpu/impl/L2Norm.cuh>
 #include <faiss/gpu/impl/L2Select.cuh>
@@ -56,7 +56,7 @@ void runKn3TopPatches(GpuResources* res,cudaStream_t stream,
     // The "k" of the knn
 
     auto k = outDistances.getSize(1);
-    auto numQueries = outDistances.getSize(0);
+    auto numQueries = outDistances.getSize(0); // numBatchQueries
 
     // The dimensions of the vectors to consider
     // FAISS_ASSERT(qdim == 3);
@@ -211,9 +211,9 @@ void runKn3TopPatches(GpuResources* res,cudaStream_t stream,
                                            outDistanceView,
                                            outIndexView,stream);
 
-              fillBurstPatches(srch_burst,patchesView,outIndexView,
-                               queryStart_i,queryStride,ws,wb,wf,
-                               stream);
+              fill_burst2patches(srch_burst,patchesView,outIndexView,
+                                 queryStart_i,queryStride,ws,wb,wf,
+                                 stream);
 
             }else{ // store in temp bufs
 

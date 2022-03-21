@@ -8,7 +8,7 @@
 #include <faiss/gpu/utils/DeviceUtils.h>
 #include <faiss/gpu/utils/StaticUtils.h>
 #include <faiss/impl/FaissAssert.h>
-#include <faiss/gpu/impl/PatchesFillBurst.cuh>
+#include <faiss/gpu/impl/FillPatches2Burst.cuh>
 #include <faiss/gpu/utils/ConversionOperators.cuh>
 #include <faiss/gpu/utils/DeviceDefs.cuh>
 #include <faiss/gpu/utils/Float16.cuh>
@@ -117,7 +117,7 @@ __global__ void patchesFillBurstKernel(
 }
 
 template <typename T>
-void patchesFillBurst(Tensor<T, 4, true>& burst,
+void fill_patches2burst(Tensor<T, 4, true>& burst,
                     Tensor<T, 6, true>& patches,
                     int queryStart, int queryStride,
                     int ws, int wb, int wf,
@@ -172,20 +172,20 @@ void patchesFillBurst(Tensor<T, 4, true>& burst,
   CUDA_TEST_ERROR();
 }
 
-void patchesFillBurst(Tensor<float, 4, true>& burst,
+void fill_patches2burst(Tensor<float, 4, true>& burst,
                     Tensor<float, 6, true>& patches,
                     int queryStart, int queryStride,
                     int ws, int wb, int wf,
                     cudaStream_t stream){
-  patchesFillBurst<float>(burst,patches,queryStart,queryStride,ws,wb,wf,stream);
+  fill_patches2burst<float>(burst,patches,queryStart,queryStride,ws,wb,wf,stream);
 }
 
-void patchesFillBurst(Tensor<half, 4, true>& burst,
+void fill_patches2burst(Tensor<half, 4, true>& burst,
                     Tensor<half, 6, true>& patches,
                     int queryStart, int queryStride,
                     int ws, int wb, int wf,
                     cudaStream_t stream){
-  patchesFillBurst<half>(burst,patches,queryStart,queryStride,ws,wb,wf,stream);
+  fill_patches2burst<half>(burst,patches,queryStart,queryStride,ws,wb,wf,stream);
 }
 
 } // namespace gpu

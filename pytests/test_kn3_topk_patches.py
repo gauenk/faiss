@@ -148,9 +148,10 @@ class TestTopKPatches(unittest.TestCase):
         # -- prepare kn3 search  --
         index,BSIZE = 0,t*h*w
         args.k = K
+        numQueries = (BSIZE-1) // args.queryStride + 1
 
         # -- search --
-        kn3.run_search(clean,0,BSIZE,flows,sigma,args,bufs,pfill=True)
+        kn3.run_search(clean,0,numQueries,flows,sigma,args,bufs,pfill=True)
         th.cuda.synchronize()
 
         # -- unpack --

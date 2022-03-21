@@ -13,13 +13,13 @@ namespace faiss {
 namespace gpu {
 
 
-  void patchesFillBurst(Tensor<float, 4, true>& burst,
+  void fill_patches2burst(Tensor<float, 4, true>& burst,
                         Tensor<float, 6, true>& patches,
                         int queryStart, int queryStride,
                         int ws, int wb, int wf,
                         cudaStream_t stream);
 
-  void patchesFillBurst(Tensor<half, 4, true>& burst,
+  void fill_patches2burst(Tensor<half, 4, true>& burst,
                         Tensor<half, 6, true>& patches,
                         int queryStart, int queryStride,
                         int ws, int wb, int wf,

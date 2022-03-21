@@ -142,9 +142,10 @@ class TestTopKSearch(unittest.TestCase):
         # -- init inputs --
         index,BSIZE = 0,t*h*w
         args.k = K
+        numQueries = (BSIZE-1) // args.queryStride + 1
 
         # -- search --
-        kn3.run_search(clean,0,BSIZE,flows,sigma,args,bufs)
+        kn3.run_search(clean,0,numQueries,flows,sigma,args,bufs)
         th.cuda.synchronize()
 
         kn3_vals = bufs.dists

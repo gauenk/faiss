@@ -13,7 +13,7 @@ import torch as th
 from .utils import get_buf,check_contiguous,get_contiguous,\
     get_float_ptr,get_int_ptr,optional,get_patches,get_flow
 
-def get_search_args(xb,xb_fill,queryStart,numElems,args,flows,bufs,
+def get_search_args(xb,xb_fill,queryStart,batchQueries,args,flows,bufs,
                    fxn_name=faiss.Kn3FxnName_KDIST):
 
     # -- unpack args --
@@ -25,8 +25,13 @@ def get_search_args(xb,xb_fill,queryStart,numElems,args,flows,bufs,
     wb = optional(args,'wb',6)
     bmax = optional(args,'bmax',255.)
     queryStride = optional(args,'queryStride',1)
-    numQueries = (numElems-1) // queryStride + 1
-    nq = numQueries
+    t,c,h,w = xb.shape
+    npix = t*h*w
+    numQueriesTotal = (npix-1) // queryStride + 1
+    nq = batchQueries
+
+    # -- error check --
+    assert (queryStart + batchQueries) <= numQueriesTotal
 
     # -- unpack flows --
     fflow = optional(flows,'fflow',None)
@@ -53,8 +58,10 @@ def get_search_args(xb,xb_fill,queryStart,numElems,args,flows,bufs,
 
     # -- alloc/format patch --
     kdist_b = fxn_name == faiss.Kn3FxnName_KDIST
-    if kdist_b: pshape = (1,1,1,1,1,1) # no space needed
-    else: pshape = (nq,k,pt,c,ps,ps)
+    if patches is None and kdist_b:
+        pshape = (1,1,1,1,1,1) # no space needed
+    elif patches is None: pshape = (nq,k,pt,c,ps,ps)
+    else: pshape = patches.shape
     patches = get_patches(patches,pshape,device,tf32)
 
 
@@ -113,13 +120,14 @@ def get_search_args(xb,xb_fill,queryStart,numElems,args,flows,bufs,
     args.fflow = fflow_ptr
     args.bflow = bflow_ptr
 
+    # [separate: (a) num of queries to search and (b) num of queries total]
     args.srch_burst = xb_ptr
     args.fill_burst = xbfill_ptr
     args.patches = patches_ptr
     args.vectorType = xb_type
     args.queryStart = queryStart
     args.queryStride = queryStride
-    args.numQueries = nq
+    args.numQueries = batchQueries
     args.outDistances = D_ptr
     args.outIndices = I_ptr
     args.outIndicesType = I_type

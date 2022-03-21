@@ -8,7 +8,7 @@
 #include <faiss/gpu/utils/DeviceUtils.h>
 #include <faiss/gpu/utils/StaticUtils.h>
 #include <faiss/impl/FaissAssert.h>
-#include <faiss/gpu/impl/BurstPatchSearch.cuh>
+#include <faiss/gpu/impl/FillBurst2Patches.cuh>
 #include <faiss/gpu/utils/ConversionOperators.cuh>
 #include <faiss/gpu/utils/DeviceDefs.cuh>
 #include <faiss/gpu/utils/Float16.cuh>
@@ -145,12 +145,12 @@ __global__ void burstPatchFillKernel(
 }
 
 template <typename T>
-void fillBurstPatches(Tensor<T, 4, true>& burst,
-                      Tensor<T, 6, true>& patches,
-                      Tensor<int, 2, true>& inds,
-                      int queryStart, int queryStride,
-                      int ws, int wb, int wf,
-                      cudaStream_t stream){
+void fill_burst2patches(Tensor<T, 4, true>& burst,
+                        Tensor<T, 6, true>& patches,
+                        Tensor<int, 2, true>& inds,
+                        int queryStart, int queryStride,
+                        int ws, int wb, int wf,
+                        cudaStream_t stream){
 
   // batching 
   constexpr int batchQueries = 8;
@@ -203,22 +203,20 @@ void fillBurstPatches(Tensor<T, 4, true>& burst,
   CUDA_TEST_ERROR();
 }
 
-void fillBurstPatches(Tensor<float, 4, true>& burst,
-                      Tensor<float, 6, true>& patches,
-                      Tensor<int, 2, true>& inds,
-                      int queryStart, int queryStride,
-                      int ws, int wb, int wf,
-                      cudaStream_t stream){
-  fillBurstPatches<float>(burst,patches,inds,queryStart,queryStride,ws,wb,wf,stream);
+void fill_burst2patches(Tensor<float, 4, true>& burst,
+                        Tensor<float, 6, true>& patches,
+                        Tensor<int, 2, true>& inds,
+                        int queryStart, int queryStride,
+                        int ws, int wb, int wf, cudaStream_t stream){
+  fill_burst2patches<float>(burst,patches,inds,queryStart,queryStride,ws,wb,wf,stream);
 }
 
-void fillBurstPatches(Tensor<half, 4, true>& burst,
-                      Tensor<half, 6, true>& patches,
-                      Tensor<int, 2, true>& inds,
-                      int queryStart, int queryStride,
-                      int ws, int wb, int wf,
-                      cudaStream_t stream){
-  fillBurstPatches<half>(burst,patches,inds,queryStart,queryStride,ws,wb,wf,stream);
+void fill_burst2patches(Tensor<half, 4, true>& burst,
+                        Tensor<half, 6, true>& patches,
+                        Tensor<int, 2, true>& inds,
+                        int queryStart, int queryStride,
+                        int ws, int wb, int wf, cudaStream_t stream){
+  fill_burst2patches<half>(burst,patches,inds,queryStart,queryStride,ws,wb,wf,stream);
 }
 
 } // namespace gpu

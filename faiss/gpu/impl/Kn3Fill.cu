@@ -10,8 +10,9 @@
 #include <faiss/impl/AuxIndexStructures.h>
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/gpu/impl/BroadcastSum.cuh>
-#include <faiss/gpu/impl/Kn3FillPatches.cuh>
-#include <faiss/gpu/impl/PatchesFillBurst.cuh>
+#include <faiss/gpu/impl/Kn3Fill.cuh>
+#include <faiss/gpu/impl/FillPatches2Burst.cuh>
+#include <faiss/gpu/impl/FillBurst2Patches.cuh>
 #include <faiss/gpu/impl/DistanceUtils.cuh>
 #include <faiss/gpu/impl/L2Norm.cuh>
 #include <faiss/gpu/impl/L2Select.cuh>
@@ -32,11 +33,13 @@ namespace faiss {
 namespace gpu {
 
 template <typename T>
-void runKn3FillPatches(GpuResources* res,cudaStream_t stream,
-                       int ps, int pt, int wf, int wb, int ws,
-                       int queryStart, int queryStride,
-                       Tensor<T, 4, true>& fill_burst,
-                       Tensor<T, 6, true>& patches) {
+void runKn3Fill(GpuResources* res,cudaStream_t stream,
+                int direction, int ps, int pt, int wf, int wb, int ws,
+                int queryStart, int queryStride,
+                Tensor<T, 4, true>& fill_burst,
+                Tensor<T, 6, true>& patches,
+                Tensor<int, 2, true>& inds) {
+
     // The size of the image burst
     auto nframes = fill_burst.getSize(0);
     auto nchnls = fill_burst.getSize(1);
@@ -44,6 +47,11 @@ void runKn3FillPatches(GpuResources* res,cudaStream_t stream,
     auto width = fill_burst.getSize(3);
     auto numQueries = patches.getSize(0);
     auto k = patches.getSize(1);
+    auto burst_npix = height * width * nframes;
+    auto queryMax = ((burst_npix-1) / queryStride)+1;
+
+    // Size checking
+    FAISS_ASSERT(numQueries <= queryMax);
 
     // Tiling 
     int numSearch = ws*ws;
@@ -84,6 +92,7 @@ void runKn3FillPatches(GpuResources* res,cudaStream_t stream,
         int curQuerySize = std::min(tileQueries, numQueries - i);
         auto queryStart_i = queryStart + i;
         auto patchesView = patches.narrow(0, i, curQuerySize);
+        auto indsView = inds.narrow(0, i, curQuerySize);
 
         // Tile over search-space
         for (int j = 0; j < numSearch; j += tileSearch) {
@@ -103,11 +112,18 @@ void runKn3FillPatches(GpuResources* res,cudaStream_t stream,
 
             if (curSearchSize == numSearch){ // we search all at once
 
-              patchesFillBurst(fill_burst,patchesView,queryStart_i,
-                               queryStride,ws,wb,wf,stream);
+              if (direction == 0){  // burst fills patches
+                fill_patches2burst(fill_burst,patchesView,queryStart_i,
+                                   queryStride,ws,wb,wf,stream);
+              }else if(direction == 1){ // patches fill burst
+                fill_burst2patches(fill_burst,patchesView,indsView,queryStart_i,
+                                   queryStride,ws,wb,wf,stream);
+              }else{
+                FAISS_THROW_MSG("[Kn3Fill.cu]: fill direction invalid");
+              }
 
             }else{ // store in temp bufs
-              FAISS_THROW_MSG("[Kn3FillPatches.cu]: bad tiling");
+              FAISS_THROW_MSG("[Kn3Fill.cu]: bad tiling");
             }
         }
 
@@ -129,28 +145,32 @@ void runKn3FillPatches(GpuResources* res,cudaStream_t stream,
 // Instantiations of the distance templates
 //
 
-void runKn3FillPatches(
+void runKn3Fill(
         GpuResources* res, cudaStream_t stream,
+        int direction,
         int ps, int pt, int wf, int wb, int ws,
         int queryStart, int queryStride,
         Tensor<float, 4, true>& fill_burst,
-        Tensor<float, 6, true>& patches){
-  runKn3FillPatches<float>(res,stream,
-                           ps,pt,wf,wb,ws,
-                           queryStart,queryStride,
-                           fill_burst,patches);
+        Tensor<float, 6, true>& patches,
+        Tensor<int, 2, true>& inds){
+  runKn3Fill<float>(res,stream,direction,
+                    ps,pt,wf,wb,ws,
+                    queryStart,queryStride,
+                    fill_burst,patches,inds);
 }
 
-void runKn3FillPatches(
+void runKn3Fill(
         GpuResources* res, cudaStream_t stream,
+        int direction,
         int ps, int pt, int wf, int wb, int ws,
         int queryStart, int queryStride,
         Tensor<half, 4, true>& fill_burst,
-        Tensor<half, 6, true>& patches) {
-  runKn3FillPatches<half>(res,stream,
-                          ps,pt,wf,wb,ws,
-                          queryStart,queryStride,
-                          fill_burst,patches);
+        Tensor<half, 6, true>& patches,
+        Tensor<int, 2, true>& inds){
+  runKn3Fill<half>(res,stream,direction,
+                   ps,pt,wf,wb,ws,
+                   queryStart,queryStride,
+                   fill_burst,patches,inds);
 }
 
 } // namespace gpu

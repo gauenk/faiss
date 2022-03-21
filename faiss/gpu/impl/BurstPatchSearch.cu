@@ -136,12 +136,12 @@ __global__ void burstPatchSearchKernel(
             //
 
             // Unpack Query Index [center pix of patch]
-            int queryIndex = queryStride*(queryIndexStart + queryStart + qidx);
-            int r_frame = queryIndex / npix;
-            int r_query_row = (queryIndex % npix) / width;
-            int r_query_col = queryIndex % width;
-            // int r_query_row = query[queryIndex][1];
-            // int r_query_col = query[queryIndex][2];
+            int queryPixel = queryStride*(queryIndexStart + queryStart + qidx);
+            int r_frame = queryPixel / npix;
+            int r_query_row = (queryPixel % npix) / width;
+            int r_query_col = queryPixel % width;
+            // int r_query_row = query[queryPixel][1];
+            // int r_query_col = query[queryPixel][2];
               
             // Reference Location [top-left of patch]
             // int r_frame = query[queryIndex][0];
@@ -337,40 +337,40 @@ void runBurstNnfL2Norm(Tensor<T, 4, true>& burst,
     FAISS_ASSERT(dim < maxThreads);
     int numThreads = std::min(dim, maxThreads);
     int nWarps = utils::divUp(numThreads, kWarpSize);
-//     // numThreads = utils::roundUp(numThreads,kWarpSize); // round-up for warp reduce.
     FAISS_ASSERT(ps == 7);
-
-//     // compute number of Grids
-//     int height = vals.getSize(0);
-//     int width = vals.getSize(1);
-//     int blockBatchSize = blocks.getSize(1);
-//     int numToComp = height * width * blockBatchSize;
-//     int numToCompPerKernel = rowTileSize * colTileSize * blockTileSize;
-//     int numHeightBlocks = utils::divUp(height, rowTileSize);
-//     int numWidthBlocks = utils::divUp(width, colTileSize);
-//     int numBlockBlocks = utils::divUp(blockBatchSize, blockTileSize);
-//     int nBlocks = utils::divUp(numToComp,numToCompPerKernel);
 
     // get grids and threads 
     int numQueryBlocks = ((numQueries-1) / batchQueries)+1;
-    // fprintf(stdout,"numQueries,numSearch: (%d,%d)\n",numQueries,numSearch);
-    // fprintf(stdout,"numQueryBlocks: %d\n",numQueryBlocks);
+
+    // check query indices
+    int nframes = burst.getSize(0);
+    int height = burst.getSize(2);
+    int width = burst.getSize(3);
+    int npix = nframes * height * width;
+    int qBlockFinal = batchQueries*(numQueryBlocks-1);
+    int qMaxPixelValid = queryStride*(qBlockFinal + queryStart);
+    int qMaxBlockValid = qBlockFinal;
+    int qMaxBlockInvalid = qBlockFinal + batchQueries;
+    // fprintf(stdout,"npix: %d\n",npix);
+    // fprintf(stdout,"queryStart: %d\n",queryStart);
+    // fprintf(stdout,"qMaxBlockValid,qMaxBlockInvalid: %d,%d\n",
+    //         qMaxBlockValid,qMaxBlockInvalid);
+    // last block starts legal pixel
+    FAISS_ASSERT(qMaxPixelValid < npix);
+    // last block starts legal query Block
+    FAISS_ASSERT(qMaxBlockValid < numQueries);
+    // last index of last block is illegal query block
+    FAISS_ASSERT(qMaxBlockInvalid >= numQueries); 
+
+    // kernel parameters
     auto grid = dim3(numQueryBlocks,numSearch);
     auto block = dim3(numThreads);
     auto smem = sizeof(float) * timeWindowSize * numComps * nWarps;
-    // auto grid = dim3(numHeightBlocks,numWidthBlocks,numBlockBlocks);
-    // auto block = dim3(numThreads);
-    // auto smem = sizeof(float) * numToCompPerKernel * nWarps;
 
-//     // weird convserion for me... ... idk
-//     float* tmpTVec;
-//     float tmp[1];
-//     tmp[0] = 100.;
-//     tmpTVec = reinterpret_cast<float*>(tmp);
-//     float TVecMax = tmpTVec[0];
+    // launch kernel
     RUN_BURST_PATCH_SEARCH(T);
 
-// #undef RUN_NNF_L2
+    // error check
     CUDA_TEST_ERROR();
 }
 

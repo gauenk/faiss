@@ -25,9 +25,10 @@ enum class Kn3FxnName {
     KDIST = 1,
     KPATCHES = 2,
     PFILL = 3,
-    FILLOUT = 4,
-    FILLIN = 5,
-    PFILLTEST = 6,
+    BFILL = 4,
+    FILLOUT = 5,
+    FILLIN = 6,
+    PFILLTEST = 7,
 };
 
 /// Arguments to brute-force GPU k-nearest neighbor searching

@@ -57,12 +57,11 @@ void runKn3Distance(GpuResources* res,cudaStream_t stream,
     auto k = outDistances.getSize(1);
     auto numQueries = outDistances.getSize(0);
 
-
     // The dimensions of the vectors to consider
     // FAISS_ASSERT(qdim == 3);
     FAISS_ASSERT(outDistances.getSize(0) == numQueries);
     FAISS_ASSERT(outIndices.getSize(0) == numQueries);
-    fprintf(stdout,"numQueries, queryMax: %d,%d\n",numQueries, queryMax);
+    // fprintf(stdout,"numQueries, queryMax: %d,%d\n",numQueries, queryMax);
     FAISS_ASSERT(numQueries <= queryMax);
 
     // If we're querying against a 0 sized set, just return empty results
@@ -146,7 +145,7 @@ void runKn3Distance(GpuResources* res,cudaStream_t stream,
             interrupt = true;
             break;
         }
-        fprintf(stdout,"i-loop:[%d]\n",i);
+        // fprintf(stdout,"i-loop:[%d]\n",i);
 
         /*
 
