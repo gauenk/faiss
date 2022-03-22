@@ -90,4 +90,4 @@ def get_fill_args(xb,patches,queryStart,ftype,inds,args):
     args.outIndices = I_ptr
     # args.outIndicesType = I_type
 
-    return args,xb
+    return args,xb,D,I

@@ -50,29 +50,17 @@ void runTinyEigh(GpuResources* res,cudaStream_t stream,
   //
 
   syevjInfo_t syevj_params = NULL;
-  cusolverDnHandle_t cusolverH;
   cusolverEigMode_t jobz = CUSOLVER_EIG_MODE_VECTOR; // compute eigenvalues and eigenvectors.
   cublasFillMode_t uplo = CUBLAS_FILL_MODE_LOWER;
+  int lda = dim;
 
-  float *d_work = nullptr;
-  int lwork = 0;
-  // int info_gpu = 0;
-  std::vector<int> info_gpu(num, 0); 
-  int* d_info = nullptr;
-
-  // -- solver handle --
-  CUSOLVER_CHECK(cusolverDnCreate(&cusolverH));
-  CUDA_VERIFY(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
-  CUSOLVER_CHECK(cusolverDnSetStream(cusolverH, stream));
-
+  // int bsize = 1024*5;
   // -- error handling  --
-  CUDA_VERIFY(cudaMalloc(reinterpret_cast<void **>(&d_info), num*sizeof(int)));
-
 
   // -- precision --
   float residual = 0;
   int executed_sweeps = 0;
-  const float tol = 1.e-10;
+  const float tol = 1.e-7;
   const int max_sweeps = 100;
   const int sort_eig = 1;
   CUSOLVER_CHECK(cusolverDnCreateSyevjInfo(&syevj_params));
@@ -81,12 +69,6 @@ void runTinyEigh(GpuResources* res,cudaStream_t stream,
   CUSOLVER_CHECK(cusolverDnXsyevjSetSortEig(syevj_params, sort_eig));
 
 
-
-  // -- compute spectrum --
-  float* d_A = (float*)covMat.data();
-  float* d_W = (float*)eigVals.data();
-  int lda = dim;
-  
   // CUSOLVER_CHECK(cusolverDnDsyevjBatched_bufferSize(cusolverH, jobz, uplo, dim,\
   //                                                   d_A, lda, d_W, &lwork, \
   //                                                   syevj_params,num));
@@ -95,13 +77,82 @@ void runTinyEigh(GpuResources* res,cudaStream_t stream,
   //                                        lda, d_W, d_work, lwork, d_info,\
   //                                        syevj_params,num));
 
-  CUSOLVER_CHECK(cusolverDnSsyevjBatched_bufferSize(cusolverH, jobz, uplo, dim,\
+  //
+  // -- Tiling --
+  //
+
+  int batchSize = covMat.getSize(0);
+  int tileBatches = 5*1024;
+  int nstreams = 4;
+
+  //
+  // -- Get our Streams --
+  //
+
+  auto streams = res->getAlternateStreamsCurrentDevice();
+  streamWait(streams, {stream});
+  int curStream = 0;
+
+
+  //
+  // -- nullptr --
+  //
+
+  int* d_info = nullptr;
+  CUDA_VERIFY(cudaMalloc(reinterpret_cast<void **>(&d_info), batchSize*sizeof(int)));
+  
+  //
+  // -- run pointers --
+  //
+
+  int lwork = 0;
+  float *d_work = nullptr;
+  float* d_A = (float*)covMat.data();  
+  float* d_W = (float*)eigVals.data();
+  int* d_info_ptr = d_info;
+
+  //
+  // -- set buffer --
+  //
+
+  cusolverDnHandle_t cusolverH;
+  CUSOLVER_CHECK(cusolverDnCreate(&cusolverH));
+  CUSOLVER_CHECK(cusolverDnSetStream(cusolverH, streams[curStream]));
+  CUSOLVER_CHECK(cusolverDnSsyevjBatched_bufferSize(cusolverH, jobz, uplo, dim, \
                                                     d_A, lda, d_W, &lwork, \
-                                                    syevj_params,num));
+                                                    syevj_params,tileBatches));
   CUDA_VERIFY(cudaMalloc(reinterpret_cast<void **>(&d_work), sizeof(float) * lwork));
-  CUSOLVER_CHECK(cusolverDnSsyevjBatched(cusolverH, jobz, uplo, dim, d_A,\
-                                         lda, d_W, d_work, lwork, d_info,\
-                                         syevj_params,num));
+  CUSOLVER_CHECK(cusolverDnDestroy(cusolverH));
+
+
+  //
+  // -- batching --
+  //
+
+  for (int i = 0; i < batchSize; i += tileBatches) {
+
+    // -- slice across batch --
+    int curBatchSize = std::min(tileBatches, batchSize - i);
+    auto covMatView = covMat.narrow(0,i,curBatchSize);
+    auto eigValsView = eigVals.narrow(0,i,curBatchSize);
+
+    // -- compute spectrum --
+    d_A = (float*)covMatView.data();
+    d_W = (float*)eigValsView.data();
+    d_info_ptr = d_info + i;
+
+    // -- solver handle --
+    cusolverDnHandle_t cusolverH_i;
+    CUSOLVER_CHECK(cusolverDnCreate(&cusolverH_i));
+    CUSOLVER_CHECK(cusolverDnSetStream(cusolverH_i, streams[curStream]));
+    CUSOLVER_CHECK(cusolverDnSsyevjBatched(cusolverH_i, jobz, uplo, dim, d_A,\
+                                           lda, d_W, d_work, lwork, d_info_ptr,\
+                                           syevj_params, curBatchSize));
+    CUSOLVER_CHECK(cusolverDnDestroy(cusolverH_i));
+
+    curStream = (curStream + 1) % nstreams;
+
+  }
 
   // /* step 4: query working space of syevj */
   // CUSOLVER_CHECK(cusolverDnDsyevj_bufferSize(cusolverH, jobz, uplo, m,
@@ -110,31 +161,17 @@ void runTinyEigh(GpuResources* res,cudaStream_t stream,
   // CUSOLVER_CHECK(cusolverDnDsyevj(cusolverH, jobz, uplo, m, d_A, lda, d_W,
   //                                 d_work, lwork, devInfo,syevj_params));
 
-
-  CUDA_VERIFY(cudaStreamSynchronize(stream));
-
-
-  // -- eror handling --
-  // CUDA_VERIFY(cudaMemcpyAsync(info_gpu.data(), d_info, num*sizeof(int), \
-  //                             cudaMemcpyDeviceToHost, stream));
-  // CUDA_VERIFY(cudaStreamSynchronize(stream));
-  // for (int index = 0; index < 10; ++index){
-  //   if (0 == info_gpu[index]) {
-  //     printf("syevj converges \n");
-  //   } else if (0 > info_gpu[index]) {
-  //     printf("%d-th parameter is wrong \n", -info_gpu[index]);
-  //     exit(1);
-  //   } else {
-  //     printf("WARNING: info = %d : syevj does not converge \n", info_gpu[index]);
-  //   }
-  // }
+  // Have the desired ordering stream wait on the multi-stream
+  streamWait({stream}, streams);
 
   //
   // -- clean up --
   //
 
+  CUDA_VERIFY(cudaFree(d_info));
+  CUDA_VERIFY(cudaFree(d_work));
   CUSOLVER_CHECK(cusolverDnDestroySyevjInfo(syevj_params));
-  CUSOLVER_CHECK(cusolverDnDestroy(cusolverH));
+
 
 }
 

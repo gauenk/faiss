@@ -128,7 +128,7 @@ class TestIoPatches(unittest.TestCase):
     def run_comparison_fill_p2b(self,noisy,clean,sigma,flows,args):
 
         # -- fixed testing params --
-        K = 15
+        K = 25
         BSIZE = 50
         NBATCHES = 3
         shape = noisy.shape
@@ -214,11 +214,40 @@ class TestIoPatches(unittest.TestCase):
             # -- test --
             np.testing.assert_array_equal(patches_np,fpatches_np)
 
+    def run_large_p2b(self,noisy,clean,sigma,flows,args):
+        # -- fixed testing params --
+        K = 15
+        BSIZE = 50
+        NBATCHES = 3
+        shape = noisy.shape
+        device = noisy.device
+
+        # -- create empty bufs --
+        bufs = edict()
+        bufs.patches = None
+        bufs.dists = None
+        bufs.inds = None
+        args['queryStride'] = 7
+        args['stype'] = "faiss"
+        noisy = th.zeros((10,3,128,128)).to(noisy.device)
+
+        # -- exec over batches --
+        for index in range(NBATCHES):
+
+            # -- random patches --
+            patches = th.rand((1024*20,26,1,3,5,5))
+
+            # -- fill patches --
+            kn3.run_fill(noisy,patches,0,args,"p2b")
+
+        assert True
+
     def run_single_test(self,dname,sigma,comp_flow,pyargs):
         noisy,clean = self.do_load_data(dname,sigma)
         flows = self.do_load_flow(False,clean,sigma,noisy.device)
-        self.run_comparison_fill_p2b(noisy,clean,sigma,flows,pyargs)
-        self.run_comparison_fill_b2p(noisy,clean,sigma,flows,pyargs)
+        # self.run_comparison_fill_p2b(noisy,clean,sigma,flows,pyargs)
+        # self.run_comparison_fill_b2p(noisy,clean,sigma,flows,pyargs)
+        self.run_large_p2b(noisy,clean,sigma,flows,pyargs)
 
     def test_sim_search(self):
 

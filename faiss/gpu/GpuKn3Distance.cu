@@ -63,7 +63,6 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
             stream,
             {args.nframes,args.nchnls,args.height,args.width});
 
-
     // Since we've guaranteed that all arguments are
     // on device, call the implementation
 
@@ -160,9 +159,8 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
                      const_cast<T*>(reinterpret_cast<const T*>(args.patches)),
                      stream,
                      {args.numQueries,args.k,args.pt,args.nchnls,args.ps,args.ps});
-      auto inds = toDeviceTemporary<int, 2>(res,device,(int*)args.outIndices,
-                                            stream,{1, 1});
-
+      int inds_cpu[2] = {1,1};
+      auto inds = toDeviceTemporary<int, 2>(res,device,(int*)inds_cpu,stream,{1, 1});
       // FILL burst with patches; or patches FILL burst
       fillBurst<T>(res,device,stream,args.ps,args.pt,args.wf,args.wb,args.ws,
                    args.queryStart,args.queryStride,srch_burst,patches,inds);

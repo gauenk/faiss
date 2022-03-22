@@ -32,8 +32,8 @@ def run_fill_output(val_dists, val_inds):
     nq, d = xq.size()
 
     # -- alloc/format bufs --
-    D = get_buf(D,nq,k,device,tf32)
-    I = get_buf(I,nq,k,device,ti32)
+    D = get_buf(D,nq,k,device,tf32,"inf")
+    I = get_buf(I,nq,k,device,ti32,"neg1")
 
     # --- faiss info --
     xb_row_major = check_contiguous(xb)
@@ -57,6 +57,7 @@ def run_fill_output(val_dists, val_inds):
     args.ws = ws
     args.wf = wf
     args.wb = wb
+    args.bsize = 1.
     args.fflow = xb_ptr # just some pointer with enough mem alloced
     args.bflow = xb_ptr # just some pointer with enough mem alloced
     args.srch_burst = xb_ptr
@@ -100,8 +101,8 @@ def run_fill_input(val_burst, val_query, bshape, qsize):
     nq, d = xq.size()
 
     # -- alloc/format bufs --
-    D = get_buf(D,nq,k,device,tf32)
-    I = get_buf(I,nq,k,device,ti32)
+    D = get_buf(D,nq,k,device,tf32,"inf")
+    I = get_buf(I,nq,k,device,ti32,"neg1")
 
     # --- faiss info --
     xb_row_major = check_contiguous(xb)
@@ -125,6 +126,7 @@ def run_fill_input(val_burst, val_query, bshape, qsize):
     args.ws = ws
     args.wf = wf
     args.wb = wb
+    args.bsize = 1.
     args.fflow = xb_ptr # just some pointer with enough mem alloced
     args.bflow = xb_ptr # just some pointer with enough mem alloced
     args.dims = d
@@ -169,8 +171,8 @@ def run_fill_patches(val, pshape, t):
     nq, d = xq.size()
 
     # -- alloc/format bufs --
-    D = get_buf(D,nq,k,device,tf32)
-    I = get_buf(I,nq,k,device,ti32)
+    D = get_buf(D,nq,k,device,tf32,"inf")
+    I = get_buf(I,nq,k,device,ti32,"neg1")
 
     # --- faiss info --
     xb_row_major = check_contiguous(xb)
@@ -195,6 +197,7 @@ def run_fill_patches(val, pshape, t):
     args.ws = ws
     args.wf = wf
     args.wb = wb
+    args.bsize = 1.
     args.fflow = xb_ptr # just some pointer with enough mem alloced
     args.bflow = xb_ptr # just some pointer with enough mem alloced
     args.dims = d

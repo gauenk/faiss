@@ -49,7 +49,7 @@ void runKn3Fill(GpuResources* res,cudaStream_t stream,
     auto k = patches.getSize(1);
     auto burst_npix = height * width * nframes;
     auto queryMax = ((int)(burst_npix-1) / queryStride)+1;
-    fprintf(stdout,"queryMax,numQueries: %d,%d\n",queryMax,numQueries);
+    // fprintf(stdout,"queryMax,numQueries: %d,%d\n",queryMax,numQueries);
 
     // Size checking
     FAISS_ASSERT(numQueries <= queryMax);
@@ -59,7 +59,13 @@ void runKn3Fill(GpuResources* res,cudaStream_t stream,
     int timeWindowSize = wf+wb+1;
     int tileQueries,tileSearch;
     // chooseKn3TileSize(numQueries,numSearch,sizeof(T),tileQueries,tileSearch);
-    tileQueries = 8*1024;
+    if (k < 10){
+      tileQueries = 10*1024;
+    }else if ((k > 10) && (k < 50)){
+      tileQueries = 8*1024;
+    }else{
+      tileQueries = 1*1024;
+    }
     tileSearch = numSearch;
     // theirs was 512 x 40960
     int numQueryTiles = utils::divUp(numQueries, tileQueries);
@@ -69,6 +75,7 @@ void runKn3Fill(GpuResources* res,cudaStream_t stream,
     // fprintf(stdout,"numQueryTiles,numSearchTiles: %d,%d\n",numQueryTiles,numSearchTiles);
 
     // streams 
+    int nstreams = 2;
     auto streams = res->getAlternateStreamsCurrentDevice();
     streamWait(streams, {stream});
 
@@ -119,10 +126,10 @@ void runKn3Fill(GpuResources* res,cudaStream_t stream,
                 // fprintf(stdout,"fill patches with a burst\n");
                 // FAISS_ASSERT(inds.getSize(0) == curQuerySize);
                 fill_burst2patches(fill_burst,patchesView,indsView,queryStart_i,
-                                   queryStride,ws,wb,wf,stream);
+                                   queryStride,ws,wb,wf,streams[curStream]);
               }else if(direction == 1){ // patches fill burst
                 fill_patches2burst(fill_burst,patchesView,queryStart_i,
-                                   queryStride,ws,wb,wf,stream);
+                                   queryStride,ws,wb,wf,streams[curStream]);
               }else{
                 FAISS_THROW_MSG("[Kn3Fill.cu]: fill direction invalid");
               }
@@ -132,7 +139,7 @@ void runKn3Fill(GpuResources* res,cudaStream_t stream,
             }
         }
 
-        // curStream = (curStream + 1) % 2;
+        curStream = (curStream + 1) % nstreams;
     }
 
     // Have the desired ordering stream wait on the multi-stream

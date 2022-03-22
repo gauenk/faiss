@@ -87,18 +87,16 @@ def run_fill(img,patches,queryStart,srch_args,ftype,inds=None,clock=None):
 
     # -- faiss args --
     device = img.device
-    args,xb = get_fill_args(img,patches,queryStart,ftype,inds,srch_args)
+    args,xb,D,I = get_fill_args(img,patches,queryStart,ftype,inds,srch_args)
 
     # -- setup stream --
     res = faiss.StandardGpuResources()
-    pytorch_stream = th.cuda.current_stream()
-    cuda_stream_s = faiss.cast_integer_to_cudastream_t(pytorch_stream.cuda_stream)
-    res.setDefaultStream(th.cuda.current_device(), cuda_stream_s)
-    th.cuda.synchronize()
 
     # -- exec --
     if not(clock is None): clock.tic()
-    faiss.bfKn3(res, args)
+    with using_stream(res):
+        faiss.bfKn3(res, args)
+    # faiss.bfKn3(res, args)
     if not(clock is None):
         th.cuda.synchronize()
         clock.toc()
