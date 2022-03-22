@@ -76,18 +76,18 @@ def run_sim(srch_img,src_img,dst_img,ref,
     return bufs
 
 
-def run_fill(fill_img,patches,queryStart,srch_args,clock=None):
+def run_fill(img,patches,queryStart,srch_args,ftype,inds=None,clock=None):
     """
 
-    Fill the "fill_img" with the patches as the "query" locations
+    Fill the "img" with the patches as the "query" locations
 
     Patches -> fill -> Image
 
     """
 
     # -- faiss args --
-    device = fill_img.device
-    args,xb = get_fill_args(fill_img,patches,queryStart,srch_args)
+    device = img.device
+    args,xb = get_fill_args(img,patches,queryStart,ftype,inds,srch_args)
 
     # -- setup stream --
     res = faiss.StandardGpuResources()

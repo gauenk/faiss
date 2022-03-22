@@ -13,7 +13,7 @@ import torch as th
 from .utils import get_buf,check_contiguous,get_contiguous,\
     get_float_ptr,get_int_ptr,optional,get_patches,get_flow
 
-def get_fill_args(xb,patches,queryStart,args):
+def get_fill_args(xb,patches,queryStart,ftype,inds,args):
 
     # -- unpack args --
     assert not(patches is None)
@@ -38,14 +38,18 @@ def get_fill_args(xb,patches,queryStart,args):
     t,c,h,w = xb.size()
 
     # -- alloc/format patch --
-    fxn_name = faiss.Kn3FxnName_PFILL
+    if ftype == "p2b": fxn_name = faiss.Kn3FxnName_BFILL
+    elif ftype == "b2p": fxn_name = faiss.Kn3FxnName_PFILL
+    else: raise ValueError(f"Uknown fill type [{ftype}]")
     patches = get_patches(patches,pshape,device,tf32)
+    if ftype == "b2p": assert not(inds is None)
 
     # --- faiss info --
     xb = get_contiguous(xb)
     xb_ptr,xb_type = get_float_ptr(xb)
     D = th.zeros((1,1),dtype=tf32,device=device)
-    I = th.zeros((1,1),dtype=ti32,device=device)
+    empty_I = th.zeros((1,1),dtype=ti32,device=device)
+    I = inds if ftype == "b2p" else empty_I
     I_ptr,I_type = get_int_ptr(I)
     D_ptr,D_type = get_float_ptr(D)
     patches_ptr,_ = get_float_ptr(patches)

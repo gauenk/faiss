@@ -337,7 +337,7 @@ void runBurstNnfL2Norm(Tensor<T, 4, true>& burst,
     FAISS_ASSERT(dim < maxThreads);
     int numThreads = std::min(dim, maxThreads);
     int nWarps = utils::divUp(numThreads, kWarpSize);
-    FAISS_ASSERT(ps == 7);
+    // FAISS_ASSERT(ps == 7);
 
     // get grids and threads 
     int numQueryBlocks = ((numQueries-1) / batchQueries)+1;

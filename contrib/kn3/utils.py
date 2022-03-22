@@ -57,7 +57,10 @@ def check_contiguous(xq):
     return xq_row_major
 
 def get_float_ptr(xb):
-    if xb.dtype == th.float32:
+    if xb.dtype == th.float64:
+        xb_type = faiss.DistanceDataType_F64
+        xb_ptr = swig_ptr_from_DoubleTensor(xb)
+    elif xb.dtype == th.float32:
         xb_type = faiss.DistanceDataType_F32
         xb_ptr = swig_ptr_from_FloatTensor(xb)
     elif xb.dtype == th.float16:

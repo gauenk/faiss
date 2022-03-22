@@ -10,6 +10,7 @@ set(FAISS_GPU_SRC
   GpuClonerOptions.cpp
   GpuDistance.cu
   GpuKn3Distance.cu
+  GpuTinyEigh.cu
   GpuIcmEncoder.cu
   GpuIndex.cu
   GpuIndexBinaryFlat.cu
@@ -24,6 +25,7 @@ set(FAISS_GPU_SRC
   impl/BinaryFlatIndex.cu
   impl/BroadcastSum.cu
   impl/Distance.cu
+  impl/TinyEigh.cu
   impl/Kn3Distance.cu
   impl/Kn3TopPatches.cu
   impl/Kn3Fill.cu
@@ -91,6 +93,7 @@ set(FAISS_GPU_HEADERS
   GpuClonerOptions.h
   GpuDistance.h
   GpuKn3Distance.h
+  GpuTinyEigh.h
   GpuIcmEncoder.h
   GpuFaissAssert.h
   GpuIndex.h
@@ -107,6 +110,7 @@ set(FAISS_GPU_HEADERS
   impl/BinaryFlatIndex.cuh
   impl/BroadcastSum.cuh
   impl/Distance.cuh
+  impl/TinyEigh.cuh
   impl/Kn3Distance.cuh
   impl/Kn3TopPatches.cuh
   impl/Kn3Fill.cuh
@@ -192,6 +196,14 @@ foreach(header ${FAISS_GPU_HEADERS})
 endforeach()
 
 find_package(CUDAToolkit REQUIRED)
+target_link_libraries(faiss
+    PUBLIC
+        cusolver
+        cublas
+        cublasLt
+        cusparse
+        cusolverMg
+)
 target_link_libraries(faiss PRIVATE CUDA::cudart CUDA::cublas)
 target_link_libraries(faiss_avx2 PRIVATE CUDA::cudart CUDA::cublas)
 target_compile_options(faiss PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xfatbin=-compress-all>)

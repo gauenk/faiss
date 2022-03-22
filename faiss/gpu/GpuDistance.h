@@ -17,7 +17,8 @@ class GpuResourcesProvider;
 // Scalar type of the vector data
 enum class DistanceDataType {
     F32 = 1,
-    F16,
+    F16 = 2,
+    F64 = 3,
 };
 
 // Scalar type of the indices data

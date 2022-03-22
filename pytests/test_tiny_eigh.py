@@ -18,6 +18,7 @@ import torch as th
 import numpy as np
 
 # -- package helper imports --
+import vnlb
 from faiss.contrib import kn3
 from faiss.contrib import testing
 
@@ -32,20 +33,7 @@ SAVE_DIR = Path("./output/tests/")
 #
 PYTEST_OUTPUT = Path("./pytests/output/")
 
-def save_image(burst,prefix="prefix"):
-    root = PYTEST_OUTPUT
-    if not(root.exists()): root.mkdir()
-    burst = rearrange(burst,'t c h w -> t h w c')
-    burst = np.clip(burst,0,255)
-    burst = burst.astype(np.uint8)
-    nframes = burst.shape[0]
-    for t in range(nframes):
-        fn = "%s_kn3_io_%02d.png" % (prefix,t)
-        img = Image.fromarray(burst[t])
-        path = str(root / fn)
-        img.save(path)
-
-class TestIoPatches(unittest.TestCase):
+class TestTinyEigh(unittest.TestCase):
 
     #
     # -- Load Data --
@@ -81,16 +69,6 @@ class TestIoPatches(unittest.TestCase):
         flows.bflow = bflow
         return flows
 
-    def get_search_inds(self,index,bsize,shape,device):
-        t,c,h,w  = shape
-        start = index * bsize
-        stop = ( index + 1 ) * bsize
-        ti32 = th.int32
-        srch_inds = th.arange(start,stop,dtype=ti32,device=device)[:,None]
-        srch_inds = kn3.get_3d_inds(srch_inds,h,w)
-        srch_inds = srch_inds.contiguous()
-        return srch_inds
-
     def init_topk_shells(self,bsize,k,pt,c,ps,device):
         tf32,ti32 = th.float32,th.int32
         vals = float("inf") * th.ones((bsize,k),dtype=tf32,device=device)
@@ -121,11 +99,46 @@ class TestIoPatches(unittest.TestCase):
 
         return kn3_inds,kn3_patches
 
+    def exec_tiny_eigh(self,in_covMat):
+        # covMat = kn3.patches2cov(patches)
+        clock = kn3.Timer()
+        clock.tic()
+        covMat = in_covMat.clone()
+        eigVals,eigVecs = kn3.tiny_eigh(covMat)
+        clock.toc()
+        dtime = clock.diff
+        return eigVals,eigVecs,dtime
+
+    def exec_vnlb_eigh(self,in_covMat):
+        # covMat = vnlb.patches2cov(patches)
+        clock = kn3.Timer()
+        clock.tic()
+        covMat = in_covMat.clone()
+        eigVals,eigVecs = vnlb.cov2eigs(covMat)
+        clock.toc()
+        dtime = clock.diff
+        return eigVals,eigVecs,dtime
+
+    def rec_mats(self,eigVals,eigVecs):
+        # -- compute covMat --
+        L = eigVals.float()
+        Q = eigVecs.float()
+        A_r = Q @ th.diag_embed(L) @ Q.transpose(2,1)
+
+        # -- compute ID --
+        num,dim,dim = eigVecs.shape
+        I_r = Q @ Q.transpose(2,1)
+
+        # -- compute ID ref --
+        I = th.eye(dim)[None,:,:].repeat(num,1,1).to(eigVecs.device).float()
+        return A_r,I_r,I
+
+
     #
     # -- [Exec] Sim Search --
     #
 
-    def run_comparison_fill_p2b(self,noisy,clean,sigma,flows,args):
+    def run_comparison(self,noisy,clean,sigma,flows,args):
 
         # -- fixed testing params --
         K = 15
@@ -139,8 +152,6 @@ class TestIoPatches(unittest.TestCase):
         bufs.patches = None
         bufs.dists = None
         bufs.inds = None
-        clean /= 255.
-        clean *= 255.
         args['queryStride'] = 7
         args['stype'] = "faiss"
 
@@ -150,75 +161,48 @@ class TestIoPatches(unittest.TestCase):
             # -- get new image --
             noise = sigma * th.randn_like(clean)
             noisy = (clean + noise).type(th.float32).contiguous()
-            # clean = 255.*th.rand_like(clean).type(th.float32)
-            fill_img = -th.ones_like(clean).contiguous()
 
             # -- search using faiss code --
             _,patches = self.exec_kn3_search(K,noisy,flows,sigma,args,bufs)
+            covMat = vnlb.patches2cov(patches/255.)
+            # print("covMat[min,max]: ",covMat.min().item(),covMat.max().item())
 
-            # -- fill patches --
-            kn3.run_fill(fill_img,patches,0,args,"p2b",clock=None)
-            fmin,fmax = fill_img.min().item(),fill_img.max().item()
+            # -- kn3 eig  --
+            kn3_eigVals,kn3_eigVecs,kn3_time = self.exec_tiny_eigh(covMat)
 
-            # -- cpu --
-            fill_img_np = fill_img.cpu().numpy()
-            noisy_np = noisy.cpu().numpy()
-            delta = 255.*(th.abs(fill_img - noisy) > 1e-6)
-            delta_np = delta.cpu().numpy()
-            save_image(fill_img_np,prefix="fill")
-            save_image(noisy_np,prefix="clean")
-            save_image(delta_np,prefix="delta")
-
-            # -- test --
-            np.testing.assert_array_equal(fill_img_np,noisy_np)
-
-    def run_comparison_fill_b2p(self,noisy,clean,sigma,flows,args):
-
-        # -- fixed testing params --
-        K = 15
-        BSIZE = 50
-        NBATCHES = 3
-        shape = noisy.shape
-        device = noisy.device
-
-        # -- create empty bufs --
-        bufs = edict()
-        bufs.patches = None
-        bufs.dists = None
-        bufs.inds = None
-        clean /= 255.
-        clean *= 255.
-        args['queryStride'] = 7
-        args['stype'] = "faiss"
-
-        # -- exec over batches --
-        for index in range(NBATCHES):
-
-            # -- get new image --
-            noise = sigma * th.randn_like(clean)
-            noisy = (clean + noise).type(th.float32).contiguous()
-            # clean = 255.*th.rand_like(clean).type(th.float32)
-            fill_img = -th.ones_like(clean).contiguous()
-
-            # -- search using faiss code --
-            inds,patches = self.exec_kn3_search(K,noisy,flows,sigma,args,bufs)
-
-            # -- fill patches --
-            fpatches = th.zeros_like(patches)
-            kn3.run_fill(noisy,fpatches,0,args,"b2p",inds=inds,clock=None)
+            # -- vnlb eig  --
+            vnlb_eigVals,vnlb_eigVecs,vnlb_time = self.exec_vnlb_eigh(covMat)
 
             # -- cpu --
-            patches_np = patches.cpu().numpy()
-            fpatches_np = fpatches.cpu().numpy()
+            kn3_eigVals_np = kn3_eigVals.cpu().float().numpy()
+            kn3_eigVecs_np = kn3_eigVecs.cpu().float().abs().numpy()
+            vnlb_eigVals_np = vnlb_eigVals.cpu().float().numpy()
+            vnlb_eigVecs_np = vnlb_eigVecs.cpu().float().abs().numpy()
 
-            # -- test --
-            np.testing.assert_array_equal(patches_np,fpatches_np)
+            # -- valid --
+            assert not np.all(vnlb_eigVals_np<1e-8)
+            assert not np.all(vnlb_eigVecs_np<1e-8)
+
+            # -- test vals --
+            np.testing.assert_array_almost_equal(kn3_eigVals_np,vnlb_eigVals_np)
+
+            # -- test [kn3] vecs --
+            A_r,I_r,I = self.rec_mats(kn3_eigVals,kn3_eigVecs)
+            assert th.dist(A_r,covMat).item() < 1e-4
+            assert th.dist(I_r,I).item() < 1e-2
+
+            # -- test [vnlb] vecs --
+            A_r,I_r,I = self.rec_mats(vnlb_eigVals,vnlb_eigVecs)
+            assert th.dist(A_r,covMat).item() < 1e-4
+            assert th.dist(I_r,I).item() < 1e-2
+            print("kn3_time: ",kn3_time)
+            print("vnlb_time: ",vnlb_time)
+
 
     def run_single_test(self,dname,sigma,comp_flow,pyargs):
         noisy,clean = self.do_load_data(dname,sigma)
         flows = self.do_load_flow(False,clean,sigma,noisy.device)
-        self.run_comparison_fill_p2b(noisy,clean,sigma,flows,pyargs)
-        self.run_comparison_fill_b2p(noisy,clean,sigma,flows,pyargs)
+        self.run_comparison(noisy,clean,sigma,flows,pyargs)
 
     def test_sim_search(self):
 
@@ -229,8 +213,8 @@ class TestIoPatches(unittest.TestCase):
             save_dir.mkdir(parents=True)
 
         # -- test 1 --
-        sigma = 50./255.
+        sigma = 10.
         dname = "text_tourbus_64"
         comp_flow = False
-        args = edict({'ps':7,'pt':1,'c':3})
+        args = edict({'ps':5,'pt':1,'c':3})
         self.run_single_test(dname,sigma,comp_flow,args)

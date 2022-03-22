@@ -15,12 +15,6 @@ namespace gpu {
 
 class GpuResourcesProvider;
 
-// // Scalar type of the vector data
-// enum class DistanceDataType {
-//     F32 = 1,
-//     F16,
-// };
-
 enum class Kn3FxnName {
     KDIST = 1,
     KPATCHES = 2,

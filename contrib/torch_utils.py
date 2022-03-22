@@ -50,6 +50,13 @@ def swig_ptr_from_FloatTensor(x):
     return faiss.cast_integer_to_float_ptr(
         x.storage().data_ptr() + x.storage_offset() * 4)
 
+def swig_ptr_from_DoubleTensor(x):
+    """ gets a Faiss SWIG pointer from a pytorch tensor (on CPU or GPU) """
+    assert x.is_contiguous()
+    assert x.dtype == torch.float64
+    return faiss.cast_integer_to_void_ptr(
+        x.storage().data_ptr() + x.storage_offset() * 4)
+
 def swig_ptr_from_IntTensor(x):
     """ gets a Faiss SWIG pointer from a pytorch tensor (on CPU or GPU) """
     assert x.is_contiguous()

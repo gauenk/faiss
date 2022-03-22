@@ -141,19 +141,6 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
                          srch_burst,patches,fflow,bflow,
                          tOutDistances,tOutIntIndices);
 
-    }else if (args.fxn_name == Kn3FxnName::BFILL){
-
-      auto patches = toDeviceTemporary<T,6>(res,device,
-                     const_cast<T*>(reinterpret_cast<const T*>(args.patches)),
-                     stream,
-                     {args.numQueries,args.k,args.pt,args.nchnls,args.ps,args.ps});
-      auto inds = toDeviceTemporary<int, 2>(res,device,(int*)args.outIndices,
-                                            stream,{args.numQueries, 1});
-      // allocating possible non-existant space to pass shape checks within call.
-
-      // FILL burst with patches
-      fillBurst<T>(res,device,stream,args.ps,args.pt,args.wf,args.wb,args.ws,
-                   args.queryStart,args.queryStride,srch_burst,patches,inds);
     }else if (args.fxn_name == Kn3FxnName::PFILL){
 
       auto patches = toDeviceTemporary<T,6>(res,device,
@@ -164,9 +151,21 @@ void bfKn3Convert(GpuResourcesProvider* prov, const GpuKn3DistanceParams& args) 
       auto inds = toDeviceTemporary<int, 2>(res,device,(int*)args.outIndices,
                                             stream,{args.numQueries, args.k});
 
-      // FILL patches with burst
+      // FILL patches with burst;  or burst FILLS patches
       fillPatches<T>(res,device,stream,args.ps,args.pt,args.wf,args.wb,args.ws,
                      args.queryStart,args.queryStride,srch_burst,patches,inds);
+    }else if (args.fxn_name == Kn3FxnName::BFILL){
+
+      auto patches = toDeviceTemporary<T,6>(res,device,
+                     const_cast<T*>(reinterpret_cast<const T*>(args.patches)),
+                     stream,
+                     {args.numQueries,args.k,args.pt,args.nchnls,args.ps,args.ps});
+      auto inds = toDeviceTemporary<int, 2>(res,device,(int*)args.outIndices,
+                                            stream,{1, 1});
+
+      // FILL burst with patches; or patches FILL burst
+      fillBurst<T>(res,device,stream,args.ps,args.pt,args.wf,args.wb,args.ws,
+                   args.queryStart,args.queryStride,srch_burst,patches,inds);
 
     }else if (args.fxn_name == Kn3FxnName::PFILLTEST){
 

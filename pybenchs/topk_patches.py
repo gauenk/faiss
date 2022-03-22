@@ -96,7 +96,6 @@ def exec_pm_faiss_burst(clock,burst,ps=7,subsize=100):
     clock.tic()
     t,c,h,w = burst.shape
     npix = t*h*w
-    BSIZE = npix
     flows,sigma,bufs = None,0.,None
     args = edict()
     args.k = subsize
@@ -104,7 +103,7 @@ def exec_pm_faiss_burst(clock,burst,ps=7,subsize=100):
     args.wf = 6
     args.wb = 6
     args.ws = 10
-    # BSIZE = (npix-1)//args.queryStride + 1
+    BSIZE = (npix-1)//args.queryStride + 1
     bufs = kn3.run_search(burst,0,BSIZE,flows,sigma,args,bufs,pfill=True)
     print("bufs.patches.shape: ",bufs.patches.shape)
     th.cuda.synchronize()
