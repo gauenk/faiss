@@ -245,8 +245,8 @@ class TestIoPatches(unittest.TestCase):
     def run_single_test(self,dname,sigma,comp_flow,pyargs):
         noisy,clean = self.do_load_data(dname,sigma)
         flows = self.do_load_flow(False,clean,sigma,noisy.device)
-        # self.run_comparison_fill_p2b(noisy,clean,sigma,flows,pyargs)
-        # self.run_comparison_fill_b2p(noisy,clean,sigma,flows,pyargs)
+        self.run_comparison_fill_p2b(noisy,clean,sigma,flows,pyargs)
+        self.run_comparison_fill_b2p(noisy,clean,sigma,flows,pyargs)
         self.run_large_p2b(noisy,clean,sigma,flows,pyargs)
 
     def test_sim_search(self):

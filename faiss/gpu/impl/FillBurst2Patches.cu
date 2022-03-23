@@ -167,6 +167,10 @@ void fill_burst2patches(Tensor<T, 4, true>& burst,
   int threadsPerPatch = c*ps*ps; // assuming patchsize_dim = ps*ps; ps*ps / dimPerThread
   int patchesPerQuery = k;
   int queriesPerBlock = 1;// a function of "k"; smaller "k" -> greater "qpb"
+  if (k > 50){
+    patchesPerQuery = 50;
+    dimPerThread = ps + 1 + (k-50);
+  }
   int numThreads = threadsPerPatch * patchesPerQuery * queriesPerBlock;
   numThreads = ((numThreads - 1) / dimPerThread) + 1;
   int numPerQuery = c*ps*ps*k;
