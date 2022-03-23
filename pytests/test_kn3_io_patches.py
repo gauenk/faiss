@@ -128,7 +128,7 @@ class TestIoPatches(unittest.TestCase):
     def run_comparison_fill_p2b(self,noisy,clean,sigma,flows,args):
 
         # -- fixed testing params --
-        K = 25
+        K = 100 # problem one
         BSIZE = 50
         NBATCHES = 3
         shape = noisy.shape
@@ -154,6 +154,10 @@ class TestIoPatches(unittest.TestCase):
             fill_img = -th.ones_like(clean).contiguous()
 
             # -- search using faiss code --
+            bufs = edict()
+            bufs.patches = None
+            bufs.dists = None
+            bufs.inds = None
             _,patches = self.exec_kn3_search(K,noisy,flows,sigma,args,bufs)
 
             # -- fill patches --
@@ -175,7 +179,7 @@ class TestIoPatches(unittest.TestCase):
     def run_comparison_fill_b2p(self,noisy,clean,sigma,flows,args):
 
         # -- fixed testing params --
-        K = 15
+        K = 100
         BSIZE = 50
         NBATCHES = 3
         shape = noisy.shape
@@ -216,7 +220,7 @@ class TestIoPatches(unittest.TestCase):
 
     def run_large_p2b(self,noisy,clean,sigma,flows,args):
         # -- fixed testing params --
-        K = 15
+        K = 100
         BSIZE = 50
         NBATCHES = 3
         shape = noisy.shape

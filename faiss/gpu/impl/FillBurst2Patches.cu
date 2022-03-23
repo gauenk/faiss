@@ -163,17 +163,21 @@ void fill_burst2patches(Tensor<T, 4, true>& burst,
   int c = burst.getSize(1);
 
   // compute num threads
-  int dimPerThread = ps+1; // how much does each thread handle
-  int threadsPerPatch = c*ps*ps; // assuming patchsize_dim = ps*ps; ps*ps / dimPerThread
-  int patchesPerQuery = k;
-  int queriesPerBlock = 1;// a function of "k"; smaller "k" -> greater "qpb"
-  if (k > 50){
-    patchesPerQuery = 50;
-    dimPerThread = ps + 1 + (k-50);
-  }
-  int numThreads = threadsPerPatch * patchesPerQuery * queriesPerBlock;
-  numThreads = ((numThreads - 1) / dimPerThread) + 1;
   int numPerQuery = c*ps*ps*k;
+  int dimPerThread = 1; // how much does each thread handle
+  int threadsPerPatch = ((numPerQuery-1)/(dimPerThread)) + 1;
+  int queriesPerBlock = 1;// a function of "k"; smaller "k" -> greater "qpb"
+  int numTotalThreads = threadsPerPatch * queriesPerBlock;
+  int numThreads = ((numTotalThreads-1) / dimPerThread) + 1;
+  while(numThreads > 1024){
+    dimPerThread += 1;
+    numThreads = ((numTotalThreads-1) / dimPerThread) + 1;
+  }
+  // fprintf(stdout,"numPerQuery: %d\n",numPerQuery);
+  // fprintf(stdout,"dimPerThread: %d\n",dimPerThread);
+  // fprintf(stdout,"threadsPerPatch: %d\n",threadsPerPatch);
+  // fprintf(stdout,"queriesPerBlock: %d\n",queriesPerBlock);
+  // fprintf(stdout,"numThreads: %d\n",numThreads);
 
   // unpack shape of queries
   int nq = patches.getSize(0);
